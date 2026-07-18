@@ -1,2 +1,18 @@
 *.pdf
 .env*
+PLAN.md
+
+# dependencies / build
+node_modules/
+.next/
+out/
+
+# tests
+coverage/
+test-results/
+playwright-report/
+
+# misc
+.DS_Store
+*.tsbuildinfo
+.vercel
