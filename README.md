@@ -49,6 +49,10 @@ seats are claimed and released only by calling the two locking functions. The
 capacity rule isn't a convention the code agrees to follow, it's the only path
 the database leaves open.
 
+[`doc/data-model-and-concurrency.md`](doc/data-model-and-concurrency.md)
+describes the tables in full and walks through the race this prevents, the
+alternatives considered, and the path to the 12-month scale numbers.
+
 The proof is an integration suite that fires concurrent HTTP requests at a
 running server — see _Proving it_ below.
 

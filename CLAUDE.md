@@ -25,6 +25,8 @@ npx supabase db reset   # re-apply migrations + reseed
 **S1 (capacity) and S2 (one RSVP per player) are enforced in the database, not
 in application code.** Every RSVP mutation goes through `rsvp_to_event` /
 `cancel_rsvp` in `supabase/migrations/`, which lock the event row `FOR UPDATE`.
+Read `doc/data-model-and-concurrency.md` before changing anything in this path —
+and update it in the same PR if you do.
 
 - **Nothing writes `rsvps` outside those functions**, and the database enforces
   it: `service_role` is granted `select` on `rsvps` but not `insert`, `update`,
