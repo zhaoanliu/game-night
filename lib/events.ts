@@ -115,6 +115,33 @@ export async function listPlayerEvents(
   return (data as CountedRow[]).map(withSeatsLeft)
 }
 
+// The events an organizer runs that aren't over yet.
+//
+// Same ends_at boundary as listPlayerEvents, and the reasoning is stronger
+// from the organizer's chair: the moment an event starts is the moment its
+// organizer most needs the roster, so it must not vanish from their list the
+// instant it begins — which is exactly what the browse boundary would do.
+// Soonest-first ordering puts in-progress events (past starts_at) at the top
+// on its own. Finished events are absent for the same reason the player-side
+// history view is deferred: attendance history is product surface the brief
+// doesn't ask for.
+export async function listOrganizerEvents(organizerId: string): Promise<EventWithCount[]> {
+  const supabase = createServiceClient()
+  const { data, error } = await supabase
+    .from('events_with_counts')
+    .select(EVENT_COLUMNS)
+    .eq('organizer_id', organizerId)
+    .gt('ends_at', new Date().toISOString())
+    .order('starts_at', { ascending: true })
+
+  if (error) {
+    console.error('listOrganizerEvents failed:', error.message, error)
+    throw new ApiError(500, 'internal_error', 'Could not load your events')
+  }
+
+  return (data as CountedRow[]).map(withSeatsLeft)
+}
+
 export async function hasRsvp(eventId: string, playerId: string): Promise<boolean> {
   const supabase = createServiceClient()
   const { data, error } = await supabase

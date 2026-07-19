@@ -381,6 +381,45 @@ describe('my events', () => {
   })
 })
 
+describe("the organizer's own list", () => {
+  it('lists not-yet-ended events only, in-progress first, and only their own', async () => {
+    const [mine, theirs] = await createUsers('organizer', 2)
+
+    const future = await createEvent({ organizerId: mine.id, capacity: 8 })
+    const inProgress = await createEvent({ organizerId: mine.id, capacity: 8 })
+    // Started an hour ago, ends in two — the check-in moment. The browse
+    // boundary would hide this one from its own organizer.
+    await moveEvent(inProgress.id, new Date(Date.now() - 3_600_000))
+    const finished = await createEvent({ organizerId: mine.id, capacity: 8 })
+    await moveEvent(finished.id, new Date(Date.now() - 86_400_000))
+    await createEvent({ organizerId: theirs.id, capacity: 8 })
+
+    const response = await asUser<{ events: { id: string }[] }>(mine, '/api/organizer/events')
+    expect(response.status).toBe(200)
+    expect(response.body.events.map((e) => e.id)).toEqual([inProgress.id, future.id])
+  })
+
+  it('scopes the list to the session, not a parameter — and carries counts', async () => {
+    const mine = await createUser('organizer')
+    const event = await createEvent({ organizerId: mine.id, capacity: 4 })
+    await asUser(player, `/api/events/${event.id}/rsvp`, { method: 'POST' })
+
+    const response = await asUser<{ events: { id: string; attendee_count: number; seats_left: number }[] }>(
+      mine,
+      '/api/organizer/events'
+    )
+    expect(response.body.events).toHaveLength(1)
+    expect(response.body.events[0].attendee_count).toBe(1)
+    expect(response.body.events[0].seats_left).toBe(3)
+  })
+
+  it('refuses the list to a player', async () => {
+    const response = await asUser<{ error: { code: string } }>(player, '/api/organizer/events')
+    expect(response.status).toBe(403)
+    expect(response.body.error.code).toBe('forbidden')
+  })
+})
+
 describe('the seed keeps its promises', () => {
   it('offers a full event, near-full events, an empty one, and a past one', async () => {
     const { data, error } = await serviceClient()

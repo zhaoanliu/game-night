@@ -48,6 +48,7 @@ resolves who you are from a session cookie and decides what that role may do.
 | `POST /api/events/:id/rsvp` | player | claim a seat; returns fresh `attendee_count`/`seats_left` |
 | `DELETE /api/events/:id/rsvp` | player | release a seat; returns fresh `attendee_count`/`seats_left` |
 | `GET /api/my-events?when=` | player | `upcoming` (default) soonest first, or `past` most recent first |
+| `GET /api/organizer/events` | organizer | your own not-yet-ended events, in-progress first |
 
 Errors share one shape — `{"error": {"code", "message"}}` — with a `fields` map
 added for validation failures so a form can show the problem next to the input
@@ -66,12 +67,13 @@ is a `400` rather than a silent fallback to upcoming, so a typo in a client
 surfaces immediately instead of showing plausible but wrong data.
 
 Events have an end time as well as a start (organizers may set it; it defaults
-to a three-hour session), and the two lists deliberately use different
-boundaries. Browsing keys off the start time — it's about what you can still
-join, and seats close when an event begins. "My events" keys off the end time —
-an event happening right now is something you're part of and haven't finished,
-so it stays under upcoming rather than vanishing into history while you're at
-the table.
+to a three-hour session), and the lists deliberately use different boundaries.
+Browsing keys off the start time — it's about what you can still join, and
+seats close when an event begins. "My events" and the organizer's own list key
+off the end time — an event happening right now is something you're part of, or
+running, and haven't finished. It stays on the player's list while they're at
+the table, and on the organizer's page at check-in time, when the attendee
+roster matters most.
 
 RSVP and cancel responses include the updated `attendee_count` and `seats_left`,
 so the UI settles from a single round trip: the number a player sees after

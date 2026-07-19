@@ -117,6 +117,27 @@ moving mid-event serves nobody. This is enforced inside the locked SQL function
 it cannot drift from the capacity check. Consequence, tested explicitly: an
 in-progress event is on its attendees' list *and* refuses newcomers.
 
+### The organizer's list is keyed off the end time too
+
+O2 gives organizers the attendee lists for their own events, which implies a
+list of their events to reach those rosters from: `GET /api/organizer/events`,
+role-gated and always scoped to the session user. Its window is the same one
+"my events" uses — everything not yet ended — because the player-side reasoning
+is stronger still from the organizer's chair: the moment an event starts is the
+moment its organizer most needs the roster, and a browse-style start-time
+boundary would drop the event from their page at exactly that moment.
+Soonest-first ordering puts in-progress events at the top on its own.
+
+Alternatives rejected: reusing the browse list and filtering by organizer
+client-side (inherits the browse boundary, recreating the vanishing-event
+problem — the seed's in-progress event would be invisible to its own
+organizer), and a `?mine=1` flag on `GET /api/events` (the flag would have to
+switch the endpoint's time boundary, giving one URL two meanings of
+"upcoming"). Finished events are absent for the same reason the player-side
+history view is UI-deferred: attendance history is real product surface the
+brief doesn't ask for, and the endpoint split keeps adding it later purely
+additive.
+
 ### Cancellation is a hard delete — no RSVP audit trail
 
 Cancel removes the row; re-RSVP after cancel is a fresh insert. No `status`
