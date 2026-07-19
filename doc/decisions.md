@@ -54,11 +54,10 @@ first."* Read literally, "everything" includes events that already happened;
 read by intent, a commuting player deciding what to attend wants the future
 list with nothing buried under last month's game nights.
 
-Both readings are served: `GET /api/my-events?when=upcoming|past`. `upcoming`
-is the default and sorts soonest first; `past` sorts most recent first, because
-history is read backwards from now. In the UI, upcoming is the primary view and
-history sits behind a secondary tab — deliberately low priority, but the API
-treats both as first-class so the UI choice stays a UI choice.
+Both readings are served at the API: `GET /api/my-events?when=upcoming|past`.
+`upcoming` is the default and sorts soonest first; `past` sorts most recent
+first, because history is read backwards from now. Both windows are first-class
+and integration-tested over HTTP, so what the UI exposes stays a UI choice.
 
 An unrecognised `when` value is a `400 invalid_window`, not a silent fallback
 to upcoming — a typo in a client should surface, not render plausible but
@@ -67,6 +66,20 @@ wrong data.
 Without history, a past RSVP simply vanished from the player's view while the
 organizer's attendee list still showed them — an asymmetry with no story to
 justify it.
+
+The UI, however, ships upcoming-only: history stays API-only for now. The
+brief's anti-goals are explicit that extra surface earns no points, and the
+history tab is not the cheap toggle it appears to be. It needs its own
+component, tests, and empty state; its e2e fixture cannot be the designated
+demo player, who deliberately holds no RSVPs; and it must suppress the inline
+cancel action — cancellation is a hard delete (below), so "cancel" on a
+finished event would erase attendance history rather than release a seat, a
+footgun the upcoming-only view cannot express at all. Since the API already
+treats history as first-class, adding the tab later is purely additive UI.
+Revisit if P5's "track events" is read to include what already happened, or
+when the demo should surface the `ends_at` boundary — an in-progress event
+sitting in its attendees' upcoming list is the subtlest behaviour in this
+product, and today nothing in the UI showcases it.
 
 ### Roles are exclusive
 
