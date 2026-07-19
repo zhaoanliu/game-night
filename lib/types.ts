@@ -3,11 +3,20 @@ export type GameType = (typeof GAME_TYPES)[number]
 
 export type Role = 'player' | 'organizer'
 
+// Which slice of a player's RSVPs to return: what's coming up, or what has
+// already happened.
+export const EVENT_WINDOWS = ['upcoming', 'past'] as const
+export type EventWindow = (typeof EVENT_WINDOWS)[number]
+
 export interface User {
   id: string
   name: string
   role: Role
 }
+
+// Organizers are not asked for an end time; most game nights run a session and
+// break up. They can pass one when it matters.
+export const DEFAULT_DURATION_MINUTES = 180
 
 export interface GameEvent {
   id: string
@@ -15,6 +24,7 @@ export interface GameEvent {
   title: string
   game_type: GameType
   starts_at: string
+  ends_at: string
   location: string
   capacity: number
   created_at: string
