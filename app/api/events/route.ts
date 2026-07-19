@@ -31,7 +31,9 @@ export async function POST(request: Request) {
     const { data, error } = await supabase
       .from('events')
       .insert({ ...input, organizer_id: organizer.id })
-      .select('id, organizer_id, title, game_type, starts_at, location, capacity, created_at, updated_at')
+      .select(
+        'id, organizer_id, title, game_type, starts_at, ends_at, location, capacity, created_at, updated_at'
+      )
       .single()
 
     if (error) {

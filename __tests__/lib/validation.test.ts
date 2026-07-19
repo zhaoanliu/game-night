@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { validateEventInput, CAPACITY_MAX, TITLE_MAX, LOCATION_MAX } from '@/lib/validation'
+import {
+  validateEventInput,
+  CAPACITY_MAX,
+  TITLE_MAX,
+  LOCATION_MAX,
+  MAX_DURATION_HOURS,
+} from '@/lib/validation'
+import { DEFAULT_DURATION_MINUTES } from '@/lib/types'
 import { ApiError } from '@/lib/api'
 
 const future = () => new Date(Date.now() + 86_400_000).toISOString()
@@ -72,5 +79,37 @@ describe('validateEventInput', () => {
   it('reports every invalid field at once rather than stopping at the first', () => {
     const fields = fieldsFor({ title: '', game_type: 'chess', starts_at: 'nope', location: '', capacity: 0 })
     expect(Object.keys(fields).sort()).toEqual(['capacity', 'game_type', 'location', 'starts_at', 'title'])
+  })
+
+  it('defaults the end time to the standard session length after the start', () => {
+    const input = valid()
+    const result = validateEventInput(input)
+    expect(Date.parse(result.ends_at) - Date.parse(result.starts_at)).toBe(
+      DEFAULT_DURATION_MINUTES * 60_000
+    )
+  })
+
+  it('accepts an explicit end time after the start', () => {
+    const startsAt = future()
+    const endsAt = new Date(Date.parse(startsAt) + 2 * 3_600_000).toISOString()
+    const result = validateEventInput({ ...valid(), starts_at: startsAt, ends_at: endsAt })
+    expect(result.ends_at).toBe(endsAt)
+  })
+
+  it('rejects an end time at or before the start', () => {
+    const startsAt = future()
+    expect(fieldsFor({ ...valid(), starts_at: startsAt, ends_at: startsAt })).toHaveProperty('ends_at')
+    const earlier = new Date(Date.parse(startsAt) - 60_000).toISOString()
+    expect(fieldsFor({ ...valid(), starts_at: startsAt, ends_at: earlier })).toHaveProperty('ends_at')
+  })
+
+  it('rejects an unparseable end time', () => {
+    expect(fieldsFor({ ...valid(), ends_at: 'whenever' })).toHaveProperty('ends_at')
+  })
+
+  it('rejects an implausibly long event', () => {
+    const startsAt = future()
+    const weeksLater = new Date(Date.parse(startsAt) + (MAX_DURATION_HOURS + 1) * 3_600_000).toISOString()
+    expect(fieldsFor({ ...valid(), starts_at: startsAt, ends_at: weeksLater })).toHaveProperty('ends_at')
   })
 })

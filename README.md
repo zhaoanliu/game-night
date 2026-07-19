@@ -45,8 +45,8 @@ resolves who you are from a session cookie and decides what that role may do.
 | `POST /api/events` | organizer | create an event |
 | `GET /api/events/:id` | any signed-in user | one event, plus whether *you* hold a seat |
 | `GET /api/events/:id/attendees` | owning organizer | the attendee list for your own event |
-| `POST /api/events/:id/rsvp` | player | claim a seat |
-| `DELETE /api/events/:id/rsvp` | player | release a seat |
+| `POST /api/events/:id/rsvp` | player | claim a seat; returns fresh `attendee_count`/`seats_left` |
+| `DELETE /api/events/:id/rsvp` | player | release a seat; returns fresh `attendee_count`/`seats_left` |
 | `GET /api/my-events?when=` | player | `upcoming` (default) soonest first, or `past` most recent first |
 
 Errors share one shape — `{"error": {"code", "message"}}` — with a `fields` map
@@ -64,6 +64,20 @@ soonest first — the commuting player asking what's next. `past` sorts most
 recent first, because history is read backwards from now. An unrecognised value
 is a `400` rather than a silent fallback to upcoming, so a typo in a client
 surfaces immediately instead of showing plausible but wrong data.
+
+Events have an end time as well as a start (organizers may set it; it defaults
+to a three-hour session), and the two lists deliberately use different
+boundaries. Browsing keys off the start time — it's about what you can still
+join, and seats close when an event begins. "My events" keys off the end time —
+an event happening right now is something you're part of and haven't finished,
+so it stays under upcoming rather than vanishing into history while you're at
+the table.
+
+RSVP and cancel responses include the updated `attendee_count` and `seats_left`,
+so the UI settles from a single round trip: the number a player sees after
+acting is the server's answer, not a client-side guess. This pairs with the
+deliberately *non*-optimistic RSVP button — under contention the server is the
+source of truth, and "You're in!" should never be shown and then taken back.
 
 ### Identity
 

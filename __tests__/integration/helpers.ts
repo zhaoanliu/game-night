@@ -45,6 +45,8 @@ export async function createUser(role: 'player' | 'organizer'): Promise<TestUser
   return user
 }
 
+const TEST_DURATION_MS = 3 * 3_600_000
+
 export interface TestEventInput {
   organizerId: string
   capacity: number
@@ -58,13 +60,15 @@ export async function createEvent({
   startsAt,
   title,
 }: TestEventInput): Promise<{ id: string; capacity: number }> {
+  const start = startsAt ?? new Date(Date.now() + 86_400_000)
   const { data, error } = await serviceClient()
     .from('events')
     .insert({
       organizer_id: organizerId,
       title: title ?? `${TEST_PREFIX}event-${crypto.randomUUID().slice(0, 8)}`,
       game_type: 'other',
-      starts_at: (startsAt ?? new Date(Date.now() + 86_400_000)).toISOString(),
+      starts_at: start.toISOString(),
+      ends_at: new Date(start.getTime() + TEST_DURATION_MS).toISOString(),
       location: 'Integration test hall',
       capacity,
     })
@@ -73,6 +77,20 @@ export async function createEvent({
 
   if (error) throw new Error(`createEvent failed: ${error.message}`)
   return data as { id: string; capacity: number }
+}
+
+// Re-dates an event, keeping ends_at consistent with starts_at — the check
+// constraint (ends_at > starts_at) rejects moving one without the other.
+export async function moveEvent(eventId: string, startsAt: Date): Promise<void> {
+  const { error } = await serviceClient()
+    .from('events')
+    .update({
+      starts_at: startsAt.toISOString(),
+      ends_at: new Date(startsAt.getTime() + TEST_DURATION_MS).toISOString(),
+    })
+    .eq('id', eventId)
+
+  if (error) throw new Error(`moveEvent failed: ${error.message}`)
 }
 
 export async function countRsvps(eventId: string): Promise<number> {

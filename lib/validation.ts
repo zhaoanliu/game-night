@@ -1,5 +1,11 @@
 import { ApiError } from '@/lib/api'
-import { EVENT_WINDOWS, GAME_TYPES, type EventWindow, type GameType } from '@/lib/types'
+import {
+  DEFAULT_DURATION_MINUTES,
+  EVENT_WINDOWS,
+  GAME_TYPES,
+  type EventWindow,
+  type GameType,
+} from '@/lib/types'
 
 // Defaults to upcoming: the common case is a player checking what they have
 // coming up, and history should cost an explicit ask.
@@ -27,6 +33,7 @@ export interface EventInput {
   title: string
   game_type: GameType
   starts_at: string
+  ends_at: string
   location: string
   capacity: number
 }
@@ -34,6 +41,7 @@ export interface EventInput {
 export const CAPACITY_MAX = 1000
 export const TITLE_MAX = 120
 export const LOCATION_MAX = 200
+export const MAX_DURATION_HOURS = 24 * 7
 
 export function validateEventInput(input: unknown): EventInput {
   if (typeof input !== 'object' || input === null) {
@@ -62,6 +70,25 @@ export function validateEventInput(input: unknown): EventInput {
     startsAt = new Date(startsAtRaw).toISOString()
   }
 
+  // Optional: an organizer who doesn't care gets the default session length.
+  // Validated against the start time, so a bad pair is caught here rather than
+  // by the database's check constraint.
+  const endsAtRaw = body.ends_at
+  let endsAt = ''
+  if (endsAtRaw === undefined || endsAtRaw === null || endsAtRaw === '') {
+    if (startsAt) {
+      endsAt = new Date(Date.parse(startsAt) + DEFAULT_DURATION_MINUTES * 60_000).toISOString()
+    }
+  } else if (typeof endsAtRaw !== 'string' || Number.isNaN(Date.parse(endsAtRaw))) {
+    fields.ends_at = 'End time must be a valid ISO 8601 date'
+  } else if (startsAt && Date.parse(endsAtRaw) <= Date.parse(startsAt)) {
+    fields.ends_at = 'End time must be after the start time'
+  } else if (startsAt && Date.parse(endsAtRaw) - Date.parse(startsAt) > MAX_DURATION_HOURS * 3_600_000) {
+    fields.ends_at = `An event cannot run longer than ${MAX_DURATION_HOURS} hours`
+  } else {
+    endsAt = new Date(endsAtRaw).toISOString()
+  }
+
   const location = typeof body.location === 'string' ? body.location.trim() : ''
   if (location.length < 1 || location.length > LOCATION_MAX) {
     fields.location = `Location is required (max ${LOCATION_MAX} characters)`
@@ -80,6 +107,7 @@ export function validateEventInput(input: unknown): EventInput {
     title,
     game_type: gameType as GameType,
     starts_at: startsAt,
+    ends_at: endsAt,
     location,
     capacity: capacity as number,
   }

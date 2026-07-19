@@ -4,7 +4,7 @@ import type { EventWindow, EventWithCount, GameType } from '@/lib/types'
 
 // Every column of events, plus the read-time attendee count.
 const EVENT_COLUMNS =
-  'id, organizer_id, title, game_type, starts_at, location, capacity, created_at, updated_at, attendee_count'
+  'id, organizer_id, title, game_type, starts_at, ends_at, location, capacity, created_at, updated_at, attendee_count'
 
 type CountedRow = Omit<EventWithCount, 'seats_left'>
 
@@ -17,8 +17,12 @@ export interface EventQuery {
   gameType?: GameType
 }
 
-// Upcoming events, soonest first. Past events are never listed — the primary
-// user is deciding what to attend, not reviewing history.
+// Events you can still join, soonest first.
+//
+// Keyed off starts_at, not ends_at: seats close when an event begins, so an
+// event already in progress does not belong in a list whose purpose is
+// choosing what to attend. It remains visible to the players who hold seats —
+// see listPlayerEvents.
 export async function listUpcomingEvents({ search, gameType }: EventQuery = {}): Promise<EventWithCount[]> {
   const supabase = createServiceClient()
   let query = supabase
@@ -65,6 +69,11 @@ export async function getEvent(id: string): Promise<EventWithCount> {
 
 // The events a player holds a seat at.
 //
+// The boundary here is ends_at, not starts_at: an event happening right now is
+// something you are part of and have not finished, so it belongs under
+// upcoming. Keying off starts_at would drop tonight's game from your list
+// while you were sitting at the table.
+//
 // Ordering follows what each window is for: upcoming events read soonest
 // first, because the question is "what's next"; history reads most recent
 // first, because the question is "what did I just play".
@@ -94,7 +103,7 @@ export async function listPlayerEvents(
   const upcoming = when === 'upcoming'
 
   let query = supabase.from('events_with_counts').select(EVENT_COLUMNS).in('id', eventIds)
-  query = upcoming ? query.gt('starts_at', now) : query.lte('starts_at', now)
+  query = upcoming ? query.gt('ends_at', now) : query.lte('ends_at', now)
 
   const { data, error } = await query.order('starts_at', { ascending: upcoming })
 

@@ -14,12 +14,17 @@ export interface User {
   role: Role
 }
 
+// Organizers are not asked for an end time; most game nights run a session and
+// break up. They can pass one when it matters.
+export const DEFAULT_DURATION_MINUTES = 180
+
 export interface GameEvent {
   id: string
   organizer_id: string
   title: string
   game_type: GameType
   starts_at: string
+  ends_at: string
   location: string
   capacity: number
   created_at: string

@@ -31,6 +31,7 @@ erDiagram
         text        title       "1-120 chars"
         text        game_type   "boardgame|tcg|rpg|miniatures|party|other"
         timestamptz starts_at
+        timestamptz ends_at     "> starts_at; default start + 3h"
         text        location    "1-200 chars"
         int         capacity    "1-1000"
         timestamptz created_at
@@ -66,11 +67,21 @@ validation.
 constraint can be widened in a migration without the `ALTER TYPE` dance, and the
 same list is mirrored in `lib/types.ts` for the UI filter.
 
+Events carry an end time as well as a start (`ends_at > starts_at`, enforced by
+a check constraint; organizers may set it, defaulting to a three-hour session).
+Without it, "has it started" had to stand in for "is it over", which filed an
+event running *right now* under history. The two timestamps let the product use
+two different boundaries honestly: browsing lists what you can still join
+(`starts_at > now` — seats close at start), while a player's "my events" lists
+what they are part of and haven't finished (`ends_at > now`), so tonight's game
+stays on their list while they're at the table.
+
 Indexes:
 
 | Index | Serves |
 |---|---|
 | `events_starts_at_idx` | the hot path — upcoming events, soonest first |
+| `events_ends_at_idx` | a player's events, partitioned on "is it over" |
 | `events_organizer_idx` | an organizer listing their own events |
 
 `updated_at` is maintained by the `events_set_updated_at` trigger rather than by

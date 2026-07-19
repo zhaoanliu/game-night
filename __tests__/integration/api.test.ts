@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { asUser, cleanup, createEvent, createUser, createUsers, serviceClient } from './helpers'
+import {
+  asUser,
+  cleanup,
+  createEvent,
+  createUser,
+  createUsers,
+  moveEvent,
+  serviceClient,
+} from './helpers'
 
 // Authorization and server-side validation (S4), plus the seed contract the
 // demo depends on.
@@ -210,7 +218,14 @@ describe('event listing', () => {
     expect(before.body.event.attendee_count).toBe(0)
     expect(before.body.event.seats_left).toBe(3)
 
-    await asUser(player, `/api/events/${event.id}/rsvp`, { method: 'POST' })
+    // The mutation response itself carries the fresh counts — the pending-state
+    // UI settles from this single round trip.
+    const claimed = await asUser<{ status: string; attendee_count: number; seats_left: number }>(
+      player,
+      `/api/events/${event.id}/rsvp`,
+      { method: 'POST' }
+    )
+    expect(claimed.body).toEqual({ status: 'confirmed', attendee_count: 1, seats_left: 2 })
 
     const after = await asUser<{
       event: { attendee_count: number; seats_left: number }
@@ -219,6 +234,23 @@ describe('event listing', () => {
     expect(after.body.event.attendee_count).toBe(1)
     expect(after.body.event.seats_left).toBe(2)
     expect(after.body.my_rsvp).toBe(true)
+
+    const released = await asUser<{ status: string; attendee_count: number; seats_left: number }>(
+      player,
+      `/api/events/${event.id}/rsvp`,
+      { method: 'DELETE' }
+    )
+    expect(released.body).toEqual({ status: 'cancelled', attendee_count: 0, seats_left: 3 })
+  })
+
+  it('returns 404 when cancelling against an unknown event', async () => {
+    const response = await asUser<{ error: { code: string } }>(
+      player,
+      '/api/events/00000000-0000-0000-0000-000000000000/rsvp',
+      { method: 'DELETE' }
+    )
+    expect(response.status).toBe(404)
+    expect(response.body.error.code).toBe('event_not_found')
   })
 
   it('filters by game type and by free text', async () => {
@@ -288,24 +320,12 @@ describe('my events', () => {
     // A past event cannot be RSVPd through the API, so seat the player while
     // the events are still in the future, then move them into the past.
     for (const event of [longAgo, recently, soon]) {
-      await serviceClient()
-        .from('events')
-        .update({ starts_at: new Date(Date.now() + 3_600_000).toISOString() })
-        .eq('id', event.id)
+      await moveEvent(event.id, new Date(Date.now() + 3_600_000))
       await asUser(player, `/api/events/${event.id}/rsvp`, { method: 'POST' })
     }
-    await serviceClient()
-      .from('events')
-      .update({ starts_at: new Date(Date.now() - 14 * 86_400_000).toISOString() })
-      .eq('id', longAgo.id)
-    await serviceClient()
-      .from('events')
-      .update({ starts_at: new Date(Date.now() - 86_400_000).toISOString() })
-      .eq('id', recently.id)
-    await serviceClient()
-      .from('events')
-      .update({ starts_at: new Date(Date.now() + 86_400_000).toISOString() })
-      .eq('id', soon.id)
+    await moveEvent(longAgo.id, new Date(Date.now() - 14 * 86_400_000))
+    await moveEvent(recently.id, new Date(Date.now() - 86_400_000))
+    await moveEvent(soon.id, new Date(Date.now() + 86_400_000))
 
     const past = await asUser<{ events: { id: string }[]; when: string }>(
       player,
@@ -320,6 +340,35 @@ describe('my events', () => {
     )
     expect(upcoming.body.when).toBe('upcoming')
     expect(upcoming.body.events.map((e) => e.id)).toEqual([soon.id])
+  })
+
+  it('keeps an event that is happening right now under upcoming, not history', async () => {
+    const player = await createUser('player')
+    const event = await createEvent({ organizerId: organizer.id, capacity: 5 })
+
+    await asUser(player, `/api/events/${event.id}/rsvp`, { method: 'POST' })
+    // Started an hour ago, ends in two — in progress. You are at the table;
+    // the event is not history yet.
+    await moveEvent(event.id, new Date(Date.now() - 3_600_000))
+
+    const upcoming = await asUser<{ events: { id: string }[] }>(player, '/api/my-events')
+    expect(upcoming.body.events.map((e) => e.id)).toContain(event.id)
+
+    const past = await asUser<{ events: { id: string }[] }>(player, '/api/my-events?when=past')
+    expect(past.body.events.map((e) => e.id)).not.toContain(event.id)
+
+    // Browsing is about what you can still join, so it no longer lists it...
+    const browse = await asUser<{ events: { id: string }[] }>(player, '/api/events')
+    expect(browse.body.events.map((e) => e.id)).not.toContain(event.id)
+
+    // ...and seats are closed even though the event is still on your list.
+    const late = await asUser<{ error: { code: string } }>(
+      (await createUsers('player', 1))[0],
+      `/api/events/${event.id}/rsvp`,
+      { method: 'POST' }
+    )
+    expect(late.status).toBe(422)
+    expect(late.body.error.code).toBe('event_started')
   })
 
   it('rejects an unknown window rather than quietly showing upcoming', async () => {
