@@ -69,6 +69,11 @@ _Scaling_.
 _TBD (Phase B) — concurrency suite: N players racing for the last seat, and one
 player double-submitting._
 
+Every PR is gated by CI: ESLint, `tsc --noEmit`, the route-exports check, and
+actionlint (`.github/workflows/lint.yml`); unit tests with coverage thresholds
+and a production build (`.github/workflows/test.yml`). The HTTP-level
+concurrency suite joins these gates in Phase B.
+
 ## Design decisions
 
 _TBD._
