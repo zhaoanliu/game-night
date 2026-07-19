@@ -37,9 +37,8 @@ erDiagram
         timestamptz updated_at
     }
     rsvps {
-        uuid        id PK
-        uuid        event_id FK
-        uuid        player_id FK
+        uuid        event_id PK "FK, composite PK"
+        uuid        player_id PK "FK, composite PK"
         timestamptz created_at
     }
 ```
@@ -79,21 +78,42 @@ application code, so it stays honest no matter who writes the row.
 
 ### `rsvps`
 
-One row per player per event. Two constraints carry real weight:
+One row per player per event, and the pairing itself is the primary key:
 
-- `unique (event_id, player_id)` — a player cannot hold two seats at the same
-  event. This is the backstop for S2, not its primary mechanism (see below).
-- `event_id references events(id) on delete cascade` — deleting an event
-  releases its RSVPs. This is also how tests clean up after themselves, since
-  they are not permitted to delete RSVP rows directly.
+```sql
+primary key (event_id, player_id)
+```
 
-Indexes on `event_id` (counting attendees for an event) and `player_id`
-("my events" for a player).
+An RSVP has no identity of its own — it *is* the fact that this player holds a
+seat at this event. Making that the key means the constraint enforcing S2 and
+the index serving every lookup are the same object, and there is no surrogate
+`id` column that nothing reads. It also drops the table from four indexes to
+two: an unused primary key on `id`, plus a separate index on `event_id` that
+duplicated the leftmost column of the uniqueness index, both disappear.
+
+The remaining indexes are the primary key itself — which serves attendee lists
+and counts, since `event_id` is its leading column — and `rsvps_player_idx` on
+`player_id`, which "my events" needs because it is not the leading column.
+
+The usual objection to a wide composite key doesn't apply on Postgres. In
+InnoDB, secondary indexes store the primary key as their row pointer, so a wide
+key inflates every other index; Postgres references heap tuples by `ctid`, so
+secondary indexes pay nothing for the composite.
+
+The trade-off is that a future table referencing a specific RSVP — door
+check-ins, waitlist promotions, a payment against a seat — would need a
+two-column foreign key. None of that is in scope, and adding a surrogate key
+later is a small migration, whereas carrying an unused index on the largest
+table in the schema is a cost paid on every write forever.
+
+`event_id references events(id) on delete cascade` means deleting an event
+releases its RSVPs. That is also how tests clean up after themselves, since they
+are not permitted to delete RSVP rows directly.
 
 ### `events_with_counts` (view)
 
 ```sql
-select e.*, count(r.id)::int as attendee_count
+select e.*, count(r.player_id)::int as attendee_count
 from events e left join rsvps r on r.event_id = e.id
 group by e.id
 ```
@@ -102,6 +122,11 @@ Attendee counts are computed at read time, so a count is exact at the moment it
 is read rather than eventually consistent. `left join` keeps events with zero
 attendees in the result, and the `::int` cast avoids handing the client a
 bigint-as-string.
+
+Counting `r.player_id` rather than `*` is load-bearing: for an event with no
+RSVPs the outer join produces one row of nulls, which `count(*)` would report as
+an attendee. Counting a column from the right-hand table ignores those nulls and
+correctly yields zero.
 
 The view is declared `with (security_invoker = true)`. By default a Postgres
 view runs with its owner's privileges, which would let a caller read through the
@@ -198,9 +223,10 @@ Two layers, in this order:
    from the same player serialize: the first inserts, the second sees the row
    and returns `already_rsvpd`. The retry is a no-op, not a duplicate.
 
-2. **`unique (event_id, player_id)`** as a hard backstop. If a future code path
-   ever reached an insert without the check, the database would reject it rather
-   than double-count the seat.
+2. **`primary key (event_id, player_id)`** as a hard backstop. If a future code
+   path ever reached an insert without the check, the database would reject it
+   rather than double-count the seat. S2 is not merely validated here, it is
+   unrepresentable: a duplicate RSVP is not a row this table can hold.
 
 ### Why the duplicate check comes before the capacity check
 
@@ -259,10 +285,11 @@ and so on) lands with the API in the next phase.
 ## Cancellation and re-RSVP
 
 `cancel_rsvp` hard-deletes the row and reports `cancelled` or `not_rsvpd`, so
-calling it twice is harmless. Deleting rather than marking a status keeps the
-unique constraint simple — a plain `unique (event_id, player_id)` rather than a
-partial index over active rows — and makes "cancel then RSVP again" an ordinary
-insert.
+calling it twice is harmless. Deleting rather than marking a status is what lets
+the pairing be the primary key at all: a `status` column would allow several
+rows per player per event over time, forcing uniqueness down to a partial index
+over active rows. Hard deletion keeps the key whole and makes "cancel then RSVP
+again" an ordinary insert.
 
 The trade-off: no RSVP history. The product doesn't ask for one, but an audit
 trail would be worth adding before real traffic, and it belongs in the same

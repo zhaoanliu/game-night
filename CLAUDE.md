@@ -33,8 +33,9 @@ and update it in the same PR if you do.
   or `delete`. A route handler or test that tries to write the table directly
   gets `permission denied`, not a subtly broken capacity check. Do not "fix"
   such a failure by adding the missing grant — call the function instead.
-- The `unique (event_id, player_id)` constraint is defense in depth. Do not
-  remove it, and do not treat it as the primary S2 mechanism.
+- The `primary key (event_id, player_id)` is defense in depth for S2. Do not
+  replace it with a surrogate id, and do not treat it as the primary S2
+  mechanism — the duplicate check inside the locked function is.
 - Changing anything in the RSVP path requires the integration suite
   (`__tests__/integration/`) to pass — it is the proof, not a formality.
 

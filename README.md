@@ -40,8 +40,8 @@ _TBD — API surface and page structure land in Phases B and C._
 Both invariants are enforced in the database rather than in application code.
 `rsvp_to_event` locks the event row (`SELECT … FOR UPDATE`) before counting
 seats and inserting, so concurrent RSVPs for the same event serialize behind
-that lock and the count-then-insert can't interleave. A
-`unique (event_id, player_id)` constraint backs up the one-RSVP-per-player rule.
+that lock and the count-then-insert can't interleave. The
+`primary key (event_id, player_id)` backs up the one-RSVP-per-player rule.
 
 Route handlers never write to `rsvps` directly — and can't. The application's
 database role has no `insert`, `update`, or `delete` privilege on that table;

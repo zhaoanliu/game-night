@@ -28,15 +28,21 @@ create table if not exists public.events (
 create index if not exists events_starts_at_idx on public.events (starts_at);
 create index if not exists events_organizer_idx on public.events (organizer_id);
 
+-- An RSVP is the pairing of an event and a player, so that pairing is the
+-- primary key rather than a surrogate id: it is the only way the row is ever
+-- looked up, and it doubles as the S2 uniqueness guarantee.
+--
+-- No separate index on event_id — the primary key's btree already serves
+-- lookups on its leftmost column, which is every attendee-list and count query.
+-- player_id needs its own index because it is not the leading column ("my
+-- events" filters on it).
 create table if not exists public.rsvps (
-  id         uuid primary key default gen_random_uuid(),
   event_id   uuid not null references public.events(id) on delete cascade,
   player_id  uuid not null references public.users(id),
   created_at timestamptz not null default now(),
-  unique (event_id, player_id)
+  primary key (event_id, player_id)
 );
 
-create index if not exists rsvps_event_idx on public.rsvps (event_id);
 create index if not exists rsvps_player_idx on public.rsvps (player_id);
 
 create or replace function public.update_updated_at()
@@ -61,7 +67,7 @@ create trigger events_set_updated_at
 -- inside the functions below — same API, no rewrite.
 create or replace view public.events_with_counts
 with (security_invoker = true) as
-  select e.*, count(r.id)::int as attendee_count
+  select e.*, count(r.player_id)::int as attendee_count
   from public.events e
   left join public.rsvps r on r.event_id = e.id
   group by e.id;
