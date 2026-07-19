@@ -29,3 +29,23 @@ jobs:
       - run: npm ci
       - run: node scripts/setup-env.mjs
       - run: npm run build
+
+  # Capacity and duplicate-RSVP enforcement (S1/S2) under real concurrency.
+  # Runs the real HTTP API against a real Postgres — the guarantee this product
+  # depends on is not something a mocked test can check, so it gates every PR.
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # The Supabase CLI is a devDependency, so it is already pinned by
+      # package-lock. `start` applies migrations and loads the seed.
+      - run: npx supabase start
+      - run: node scripts/setup-env.mjs
+      - run: npm run test:integration
+      - if: failure()
+        run: npx supabase status || true

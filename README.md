@@ -154,9 +154,10 @@ builder would only assert that it was called in a particular order, which is
 exactly the kind of test that stays green while the query is wrong.
 
 Every PR is gated by CI: ESLint, `tsc --noEmit`, the route-exports check, and
-actionlint (`.github/workflows/lint.yml`); unit tests with coverage thresholds
-and a production build (`.github/workflows/test.yml`). The HTTP-level
-concurrency suite joins these gates in Phase B.
+actionlint (`.github/workflows/lint.yml`); unit tests with coverage thresholds,
+a production build, and the HTTP-level concurrency suite against a real Postgres
+(`.github/workflows/test.yml`). The guarantee this product rests on is checked
+on every pull request, not just on my machine.
 
 ## Design decisions
 
