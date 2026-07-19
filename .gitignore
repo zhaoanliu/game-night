@@ -1,6 +1,8 @@
 *.pdf
 .env*
+!.env.example
 PLAN.md
+.claude/settings.local.json
 
 # dependencies / build
 node_modules/
@@ -11,6 +13,9 @@ out/
 coverage/
 test-results/
 playwright-report/
+
+# typescript
+next-env.d.ts
 
 # misc
 .DS_Store
