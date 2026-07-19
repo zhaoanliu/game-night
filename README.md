@@ -182,7 +182,26 @@ on every pull request, not just on my machine.
 
 ## Design decisions
 
-_TBD._
+The brief leaves gaps on purpose and asks for the judgment calls to be
+recorded. They live in two documents:
+
+- [`doc/decisions.md`](doc/decisions.md) — assumptions made beyond the brief
+  and why (events get an end time; RSVP history is queryable; roles are
+  exclusive; seats close at start; hard-delete cancellation; the bounded
+  vocabularies), and the trade-offs behind the arguable calls (pending vs.
+  optimistic RSVP, the idempotency contract, proving concurrency over HTTP,
+  what unit coverage deliberately excludes).
+- [`doc/data-model-and-concurrency.md`](doc/data-model-and-concurrency.md) —
+  the schema itself: the row-lock mechanism and the oversell race it prevents,
+  the composite primary key, exact-at-read counts, the privilege model, and
+  the rejected alternatives for each.
+
+The short version of the two most load-bearing choices: capacity is enforced
+by a `FOR UPDATE` row lock inside a SQL function that is the *only* writable
+path to a seat (the application role cannot touch the RSVP table directly),
+and the RSVP button reports what the server said rather than guessing —
+because in this product, "two people went for the last seat" is not an edge
+case, it's the point.
 
 ## Scaling
 
