@@ -99,6 +99,7 @@ _Scaling_.
 ## Proving it
 
 ```bash
+npx supabase start      # if it isn't already running
 npm run test:integration
 ```
 
