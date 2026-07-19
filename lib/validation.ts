@@ -1,6 +1,14 @@
 import { ApiError } from '@/lib/api'
 import { GAME_TYPES, type GameType } from '@/lib/types'
 
+export function parseGameType(value: string | null): GameType | undefined {
+  if (!value) return undefined
+  if (!(GAME_TYPES as readonly string[]).includes(value)) {
+    throw new ApiError(400, 'invalid_game_type', `Unknown game type: ${value}`)
+  }
+  return value as GameType
+}
+
 export interface EventInput {
   title: string
   game_type: GameType

@@ -13,7 +13,20 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'lcov', 'html'],
       include: ['lib/**/*.{ts,tsx}', 'components/**/*.{ts,tsx}', 'app/api/**/*.{ts,tsx}'],
-      exclude: ['lib/supabase/**', '**/*.d.ts'],
+      // Route handlers and the data-access modules are covered by
+      // `npm run test:integration`, which drives the real HTTP API against a
+      // real database. Mocking the query builder here would assert only that
+      // we called it in a particular order — it would not catch a wrong query,
+      // a missing lock, or a broken privilege. Pure logic stays in this report
+      // and is held to the thresholds below.
+      exclude: [
+        'lib/supabase/**',
+        'lib/auth.ts',
+        'lib/events.ts',
+        'lib/rsvp.ts',
+        'app/api/**',
+        '**/*.d.ts',
+      ],
       thresholds: {
         lines: 85,
         functions: 65,
