@@ -266,6 +266,70 @@ describe('my events', () => {
     const { body } = await asUser<{ events: unknown[] }>(newcomer, '/api/my-events')
     expect(body.events).toEqual([])
   })
+
+  it('returns past events when asked, most recent first', async () => {
+    const player = await createUser('player')
+    const longAgo = await createEvent({
+      organizerId: organizer.id,
+      capacity: 5,
+      startsAt: new Date(Date.now() - 14 * 86_400_000),
+    })
+    const recently = await createEvent({
+      organizerId: organizer.id,
+      capacity: 5,
+      startsAt: new Date(Date.now() - 86_400_000),
+    })
+    const soon = await createEvent({
+      organizerId: organizer.id,
+      capacity: 5,
+      startsAt: new Date(Date.now() + 86_400_000),
+    })
+
+    // A past event cannot be RSVPd through the API, so seat the player while
+    // the events are still in the future, then move them into the past.
+    for (const event of [longAgo, recently, soon]) {
+      await serviceClient()
+        .from('events')
+        .update({ starts_at: new Date(Date.now() + 3_600_000).toISOString() })
+        .eq('id', event.id)
+      await asUser(player, `/api/events/${event.id}/rsvp`, { method: 'POST' })
+    }
+    await serviceClient()
+      .from('events')
+      .update({ starts_at: new Date(Date.now() - 14 * 86_400_000).toISOString() })
+      .eq('id', longAgo.id)
+    await serviceClient()
+      .from('events')
+      .update({ starts_at: new Date(Date.now() - 86_400_000).toISOString() })
+      .eq('id', recently.id)
+    await serviceClient()
+      .from('events')
+      .update({ starts_at: new Date(Date.now() + 86_400_000).toISOString() })
+      .eq('id', soon.id)
+
+    const past = await asUser<{ events: { id: string }[]; when: string }>(
+      player,
+      '/api/my-events?when=past'
+    )
+    expect(past.body.when).toBe('past')
+    expect(past.body.events.map((e) => e.id)).toEqual([recently.id, longAgo.id])
+
+    const upcoming = await asUser<{ events: { id: string }[]; when: string }>(
+      player,
+      '/api/my-events'
+    )
+    expect(upcoming.body.when).toBe('upcoming')
+    expect(upcoming.body.events.map((e) => e.id)).toEqual([soon.id])
+  })
+
+  it('rejects an unknown window rather than quietly showing upcoming', async () => {
+    const { status, body } = await asUser<{ error: { code: string } }>(
+      player,
+      '/api/my-events?when=yesterday'
+    )
+    expect(status).toBe(400)
+    expect(body.error.code).toBe('invalid_window')
+  })
 })
 
 describe('the seed keeps its promises', () => {

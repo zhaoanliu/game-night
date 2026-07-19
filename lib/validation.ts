@@ -1,5 +1,19 @@
 import { ApiError } from '@/lib/api'
-import { GAME_TYPES, type GameType } from '@/lib/types'
+import { EVENT_WINDOWS, GAME_TYPES, type EventWindow, type GameType } from '@/lib/types'
+
+// Defaults to upcoming: the common case is a player checking what they have
+// coming up, and history should cost an explicit ask.
+export function parseEventWindow(value: string | null): EventWindow {
+  if (!value) return 'upcoming'
+  if (!(EVENT_WINDOWS as readonly string[]).includes(value)) {
+    throw new ApiError(
+      400,
+      'invalid_window',
+      `Unknown window: ${value}. Expected one of: ${EVENT_WINDOWS.join(', ')}`
+    )
+  }
+  return value as EventWindow
+}
 
 export function parseGameType(value: string | null): GameType | undefined {
   if (!value) return undefined

@@ -1,6 +1,6 @@
 import { ApiError } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/service'
-import type { EventWithCount, GameType } from '@/lib/types'
+import type { EventWindow, EventWithCount, GameType } from '@/lib/types'
 
 // Every column of events, plus the read-time attendee count.
 const EVENT_COLUMNS =
@@ -63,12 +63,19 @@ export async function getEvent(id: string): Promise<EventWithCount> {
   return withSeatsLeft(data as CountedRow)
 }
 
-// The events a player holds a seat at, upcoming only, soonest first.
+// The events a player holds a seat at.
+//
+// Ordering follows what each window is for: upcoming events read soonest
+// first, because the question is "what's next"; history reads most recent
+// first, because the question is "what did I just play".
 //
 // Two queries rather than an embedded join: events_with_counts is a view, and
 // PostgREST cannot infer a foreign key from rsvps to a view. Two indexed
 // lookups are clearer than teaching it a synthetic relationship.
-export async function listPlayerEvents(playerId: string): Promise<EventWithCount[]> {
+export async function listPlayerEvents(
+  playerId: string,
+  when: EventWindow = 'upcoming'
+): Promise<EventWithCount[]> {
   const supabase = createServiceClient()
   const { data: rsvps, error: rsvpError } = await supabase
     .from('rsvps')
@@ -83,12 +90,13 @@ export async function listPlayerEvents(playerId: string): Promise<EventWithCount
   const eventIds = (rsvps ?? []).map((r) => r.event_id as string)
   if (eventIds.length === 0) return []
 
-  const { data, error } = await supabase
-    .from('events_with_counts')
-    .select(EVENT_COLUMNS)
-    .in('id', eventIds)
-    .gt('starts_at', new Date().toISOString())
-    .order('starts_at', { ascending: true })
+  const now = new Date().toISOString()
+  const upcoming = when === 'upcoming'
+
+  let query = supabase.from('events_with_counts').select(EVENT_COLUMNS).in('id', eventIds)
+  query = upcoming ? query.gt('starts_at', now) : query.lte('starts_at', now)
+
+  const { data, error } = await query.order('starts_at', { ascending: upcoming })
 
   if (error) {
     console.error('listPlayerEvents failed:', error.message, error)

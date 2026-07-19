@@ -47,7 +47,7 @@ resolves who you are from a session cookie and decides what that role may do.
 | `GET /api/events/:id/attendees` | owning organizer | the attendee list for your own event |
 | `POST /api/events/:id/rsvp` | player | claim a seat |
 | `DELETE /api/events/:id/rsvp` | player | release a seat |
-| `GET /api/my-events` | player | events you're attending, soonest first |
+| `GET /api/my-events?when=` | player | `upcoming` (default) soonest first, or `past` most recent first |
 
 Errors share one shape — `{"error": {"code", "message"}}` — with a `fields` map
 added for validation failures so a form can show the problem next to the input
@@ -57,6 +57,13 @@ client checked.
 RSVP responses distinguish outcomes that matter to a player: `201` for a new
 seat, `200` for a repeat submission that found the seat already held, `409` when
 the event filled up first, `422` for an event that already started.
+
+"My events" answers two different questions, so it takes a `when` parameter
+rather than returning one merged list. `upcoming` is the default and sorts
+soonest first — the commuting player asking what's next. `past` sorts most
+recent first, because history is read backwards from now. An unrecognised value
+is a `400` rather than a silent fallback to upcoming, so a typo in a client
+surfaces immediately instead of showing plausible but wrong data.
 
 ### Identity
 

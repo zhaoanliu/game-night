@@ -3,6 +3,11 @@ export type GameType = (typeof GAME_TYPES)[number]
 
 export type Role = 'player' | 'organizer'
 
+// Which slice of a player's RSVPs to return: what's coming up, or what has
+// already happened.
+export const EVENT_WINDOWS = ['upcoming', 'past'] as const
+export type EventWindow = (typeof EVENT_WINDOWS)[number]
+
 export interface User {
   id: string
   name: string
