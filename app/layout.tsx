@@ -4,6 +4,7 @@ import './globals.css'
 import { getCurrentUser } from '@/lib/auth'
 import { Header } from '@/components/identity/Header'
 import { UserPicker } from '@/components/identity/UserPicker'
+import { Footer } from '@/components/ui/Footer'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -28,6 +29,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         ) : (
           <UserPicker />
         )}
+        <Footer />
       </body>
     </html>
   )
