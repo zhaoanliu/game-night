@@ -13,6 +13,7 @@ interface RsvpCounts {
 interface RsvpButtonProps {
   eventId: string
   myRsvp: boolean
+  seatsLeft: number
   onUpdate: (counts: RsvpCounts, myRsvp: boolean) => void
 }
 
@@ -20,7 +21,11 @@ interface RsvpButtonProps {
 // strangers, so the button waits for the server's answer and settles from the
 // mutation response. On a rejection (full / started) the response is an error
 // envelope with no counts, so the fresh number comes from one refetch.
-export function RsvpButton({ eventId, myRsvp, onUpdate }: RsvpButtonProps) {
+//
+// A count that already reads zero disables the button — but the 409 handling
+// below is not dead code: it catches the page whose count went stale, i.e.
+// the loser of a last-seat race who clicked while still seeing "1 seat left".
+export function RsvpButton({ eventId, myRsvp, seatsLeft, onUpdate }: RsvpButtonProps) {
   const [pending, setPending] = useState<'rsvp' | 'cancel' | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -72,6 +77,8 @@ export function RsvpButton({ eventId, myRsvp, onUpdate }: RsvpButtonProps) {
     setPending(null)
   }
 
+  const isFull = seatsLeft <= 0
+
   return (
     <div>
       {myRsvp ? (
@@ -91,7 +98,7 @@ export function RsvpButton({ eventId, myRsvp, onUpdate }: RsvpButtonProps) {
         <button
           type="button"
           onClick={rsvp}
-          disabled={pending !== null}
+          disabled={pending !== null || isFull}
           className="inline-flex items-center gap-2 rounded-md bg-brand-600 px-5 py-2 font-medium text-white hover:bg-brand-700 disabled:opacity-50"
         >
           {pending === 'rsvp' && <Spinner />}
@@ -99,7 +106,13 @@ export function RsvpButton({ eventId, myRsvp, onUpdate }: RsvpButtonProps) {
         </button>
       )}
       <p role="status" className="mt-2 min-h-5 text-sm font-medium text-slate-700">
-        {pending === 'rsvp' ? 'Reserving…' : pending === 'cancel' ? 'Cancelling…' : notice}
+        {pending === 'rsvp'
+          ? 'Reserving…'
+          : pending === 'cancel'
+            ? 'Cancelling…'
+            : !myRsvp && isFull
+              ? 'Event is full'
+              : notice}
       </p>
     </div>
   )

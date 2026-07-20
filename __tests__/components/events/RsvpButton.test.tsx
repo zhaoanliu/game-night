@@ -15,7 +15,7 @@ describe('RsvpButton', () => {
     let release: (value: Response) => void = () => {}
     fetchMock.mockReturnValueOnce(new Promise((resolve) => (release = resolve)))
 
-    render(<RsvpButton eventId="e1" myRsvp={false} onUpdate={onUpdate} />)
+    render(<RsvpButton eventId="e1" myRsvp={false} seatsLeft={1} onUpdate={onUpdate} />)
     const button = screen.getByRole('button', { name: 'RSVP' })
     await userEvent.click(button)
 
@@ -32,17 +32,27 @@ describe('RsvpButton', () => {
 
   it('treats already_rsvpd as success', async () => {
     const onUpdate = vi.fn()
-    stubFetch().mockResolvedValue(jsonResponse({ status: 'already_rsvpd', attendee_count: 5, seats_left: 0 }))
+    stubFetch().mockResolvedValue(jsonResponse({ status: 'already_rsvpd', attendee_count: 5, seats_left: 2 }))
 
-    render(<RsvpButton eventId="e1" myRsvp={false} onUpdate={onUpdate} />)
+    render(<RsvpButton eventId="e1" myRsvp={false} seatsLeft={2} onUpdate={onUpdate} />)
     await userEvent.click(screen.getByRole('button', { name: 'RSVP' }))
 
     await waitFor(() =>
-      expect(onUpdate).toHaveBeenCalledWith({ attendee_count: 5, seats_left: 0 }, true)
+      expect(onUpdate).toHaveBeenCalledWith({ attendee_count: 5, seats_left: 2 }, true)
     )
   })
 
-  it('shows Event is full inline on 409 and refreshes counts', async () => {
+  it('is disabled with an inline explanation when the event is already full', () => {
+    stubFetch()
+    render(<RsvpButton eventId="e1" myRsvp={false} seatsLeft={0} onUpdate={vi.fn()} />)
+
+    expect(screen.getByRole('button', { name: 'RSVP' })).toBeDisabled()
+    expect(screen.getByRole('status')).toHaveTextContent('Event is full')
+  })
+
+  it('shows Event is full inline on a stale-count 409 and refreshes counts', async () => {
+    // The page still says one seat left, but someone else took it — the
+    // disabled state can't foresee this; the server's 409 handles it.
     const onUpdate = vi.fn()
     const fetchMock = stubFetch()
     fetchMock.mockResolvedValueOnce(errorEnvelope('event_full', 'This event is full', 409))
@@ -54,7 +64,7 @@ describe('RsvpButton', () => {
       })
     )
 
-    render(<RsvpButton eventId="e1" myRsvp={false} onUpdate={onUpdate} />)
+    render(<RsvpButton eventId="e1" myRsvp={false} seatsLeft={1} onUpdate={onUpdate} />)
     await userEvent.click(screen.getByRole('button', { name: 'RSVP' }))
 
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Event is full'))
@@ -71,7 +81,7 @@ describe('RsvpButton', () => {
       jsonResponse({ event: { attendee_count: 5, seats_left: 3 }, my_rsvp: false, is_owner: false })
     )
 
-    render(<RsvpButton eventId="e1" myRsvp={false} onUpdate={vi.fn()} />)
+    render(<RsvpButton eventId="e1" myRsvp={false} seatsLeft={3} onUpdate={vi.fn()} />)
     await userEvent.click(screen.getByRole('button', { name: 'RSVP' }))
 
     await waitFor(() =>
@@ -82,19 +92,20 @@ describe('RsvpButton', () => {
   it('surfaces other failures via their message', async () => {
     stubFetch().mockResolvedValue(errorEnvelope('not_identified', 'Pick a user first', 401))
 
-    render(<RsvpButton eventId="e1" myRsvp={false} onUpdate={vi.fn()} />)
+    render(<RsvpButton eventId="e1" myRsvp={false} seatsLeft={3} onUpdate={vi.fn()} />)
     await userEvent.click(screen.getByRole('button', { name: 'RSVP' }))
 
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Pick a user first'))
   })
 
-  it('cancels a held seat and settles counts from the response', async () => {
+  it('cancels a held seat even on a full event and settles counts', async () => {
     const onUpdate = vi.fn()
     const fetchMock = stubFetch()
     fetchMock.mockResolvedValue(jsonResponse({ status: 'cancelled', attendee_count: 4, seats_left: 1 }))
 
-    render(<RsvpButton eventId="e1" myRsvp={true} onUpdate={onUpdate} />)
+    render(<RsvpButton eventId="e1" myRsvp={true} seatsLeft={0} onUpdate={onUpdate} />)
     expect(screen.getByText("You're in ✓")).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cancel RSVP' })).toBeEnabled()
 
     await userEvent.click(screen.getByRole('button', { name: 'Cancel RSVP' }))
 
@@ -110,7 +121,7 @@ describe('RsvpButton', () => {
   it('surfaces a failed cancel via its message', async () => {
     stubFetch().mockResolvedValue(errorEnvelope('event_not_found', 'No such event', 404))
 
-    render(<RsvpButton eventId="e1" myRsvp={true} onUpdate={vi.fn()} />)
+    render(<RsvpButton eventId="e1" myRsvp={true} seatsLeft={0} onUpdate={vi.fn()} />)
     await userEvent.click(screen.getByRole('button', { name: 'Cancel RSVP' }))
 
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('No such event'))

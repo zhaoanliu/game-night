@@ -37,8 +37,10 @@ yet, and one in the past.
    and **Learn to Play: Gloomhaven** each show an amber "1 seat left".
 3. Open Gloomhaven and take the last seat — the badge flips to FULL for
    everyone. Cancel, and the seat comes back. RSVP again; it's a fresh claim.
-4. Open Commander Pod and try anyway: the button stays clickable and the
-   server's answer — "Event is full" — renders inline. No seat appears.
+4. Open Commander Pod: the RSVP button is disabled, with "Event is full"
+   inline. The server's 409 still backs the one case a disabled button can't
+   foresee — a page whose count went stale before the click (step 7's race
+   loser sees exactly that).
 5. **My events** tracks what you claimed, soonest first, with inline cancel;
    empty again once you release everything.
 6. Switch to **Alice Chen** in the header. On the organizer page, **Midweek

@@ -212,6 +212,14 @@ Supporting decisions that came with it:
 - **The status region is a live region** (`role="status"`), so
   "Reserving…" → "You're in" / "Event is full" is announced by screen readers,
   not just seen.
+- **A count that already reads zero disables the button** (refined 2026-07-19
+  on review feedback — it originally stayed clickable to demo the 409). A
+  control that is guaranteed to fail reads as broken, so a known-full event
+  gets a disabled button with "Event is full" inline. The 409 → inline-message
+  path is not dead code: it catches the page whose count went stale before the
+  click — the loser of a last-seat race, who was still looking at "1 seat
+  left". The disabled state handles what the client knows; the server's answer
+  handles what it can't.
 - **Rejected hybrid:** optimistic when seats are plentiful, pending when
   nearly full. Adapts to actual risk, but behaviour then depends on a
   threshold no user can see.

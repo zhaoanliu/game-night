@@ -83,6 +83,7 @@ export function EventDetail({ eventId, role }: { eventId: string; role: Role }) 
           <RsvpButton
             eventId={event.id}
             myRsvp={myRsvp}
+            seatsLeft={event.seats_left}
             onUpdate={(counts, updatedRsvp) =>
               setState({
                 phase: 'ready',

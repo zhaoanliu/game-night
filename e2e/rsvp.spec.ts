@@ -25,7 +25,7 @@ test.describe('rsvp', () => {
     await expect(page.getByText('1 seat left')).toBeVisible()
     await page.getByRole('button', { name: 'RSVP' }).click()
     await expect(page.getByText("You're in ✓")).toBeVisible()
-    await expect(page.getByText('Full')).toBeVisible()
+    await expect(page.getByText('Full', { exact: true })).toBeVisible()
     await expect(page.getByText('6 of 6 seats taken')).toBeVisible()
 
     // Release it: the seat comes back.
