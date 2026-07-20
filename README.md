@@ -271,4 +271,35 @@ _TBD._
 
 ## How this was built
 
-_TBD._
+_Full write-up TBD (Phase F)._
+
+### CI and automation
+
+Every PR is gated by five required checks: `lint` (ESLint, tsc, route-export
+check, actionlint), `unit` (coverage thresholds plus an acceptance-criteria
+gate), `build`, `integration` (the S1/S2 concurrency proof against a real
+Postgres), and `e2e` (the full Playwright suite against a **production build**
+and a real local Supabase). Docs-only PRs skip the heavy jobs via a
+detect-doc-only gate while still satisfying branch protection.
+
+The repo runs the [claude-dev-automation](https://github.com/zhaoanliu/claude-dev-automation)
+pipeline, pinned at `@v2.0.0` (a release cut for this adoption: the previously
+vendor-and-adapt pieces — `verify-ac`, the retry script, the AC-coverage gate —
+were generalized behind action inputs, so this repo vendors nothing):
+
+- **Feature factory** — labeling an issue `status: approved` generates a design
+  issue with acceptance criteria (`[AC-<design>-<n>]` tags) and a
+  machine-readable plan; `status: auto-implement` implements it sub-task by
+  sub-task, generates Playwright tests from the acceptance criteria, self-heals
+  failures, and opens a PR that is always human-merged (`manual merge required`).
+- **Self-healing CI** — a failing check dispatches `ci-failure`; an auto-fix
+  workflow reads the logs, fixes the branch, verifies against the same local
+  gate set (including the integration suite), and pushes only if green.
+- **Bug-fix bot** — `bug`-labeled issues get a root-cause fix PR with
+  risk-gated auto-merge (low-risk ≤2-file fixes only).
+- **Rebase bot** — every push to main rebases conflicting PRs, with rule-based
+  AI conflict resolution.
+
+Bot runs use the library-default model (claude-sonnet-5 at v2.0.0). The bots'
+prompts encode this repo's invariants — most importantly that nothing writes
+`rsvps` outside the two locked SQL functions.
