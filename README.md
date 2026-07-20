@@ -303,3 +303,5 @@ were generalized behind action inputs, so this repo vendors nothing):
 Bot runs use the library-default model (claude-sonnet-5 at v2.0.0). The bots'
 prompts encode this repo's invariants — most importantly that nothing writes
 `rsvps` outside the two locked SQL functions.
+
+<!-- docs-only CI canary (Phase D verification, issue #15) — this PR is closed, not merged -->
