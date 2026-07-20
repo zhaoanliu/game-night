@@ -1,7 +1,11 @@
 import Link from 'next/link'
 import type { User } from '@/lib/types'
-import { IdentitySwitcher } from '@/components/identity/IdentitySwitcher'
+import { SignOutButton } from '@/components/identity/SignOutButton'
 
+// Identity is sticky: no in-place switcher. Changing who you are means
+// signing out, which routes every identity change through the picker and a
+// full re-render — an open page can never show one user's data under
+// another's session.
 export function Header({ user }: { user: User }) {
   return (
     <header className="border-b border-slate-200 bg-white">
@@ -24,7 +28,10 @@ export function Header({ user }: { user: User }) {
             </Link>
           )}
         </nav>
-        <IdentitySwitcher current={user} />
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-medium text-slate-700">{user.name}</span>
+          <SignOutButton />
+        </div>
       </div>
     </header>
   )

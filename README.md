@@ -43,10 +43,10 @@ yet, and one in the past.
    loser sees exactly that).
 5. **My events** tracks what you claimed, soonest first, with inline cancel;
    empty again once you release everything.
-6. Switch to **Alice Chen** in the header. On the organizer page, **Midweek
-   Board Game Night** is marked *in progress* and still listed — open it and
-   the attendee roster is right there, at the moment an organizer actually
-   needs it. Switch to **Ben Okafor**: same page, no roster.
+6. Sign out and pick **Alice Chen**. On the organizer page, **Midweek Board
+   Game Night** is marked *in progress* and still listed — open it and the
+   attendee roster is right there, at the moment an organizer actually needs
+   it. Sign out, pick **Ben Okafor**, and revisit: same page, no roster.
 7. The race the product exists for: open a one-seat event as two different
    players in a normal and a private window, and click RSVP in both at once.
    Exactly one wins; the other reads "Event is full".
@@ -81,8 +81,9 @@ endpoints — one data path, whether the request comes from the UI or curl:
 | `/organizer` | organizer | create form plus your own not-yet-ended events |
 
 Identity is resolved once, in the root layout: with no session cookie a
-full-screen "Who are you?" picker replaces the app, and the header's switcher
-swaps identity (and role) mid-demo. Every fetch surface has loading skeletons,
+full-screen "Who are you?" picker replaces the app. Identity then sticks until
+you sign out — the header shows who you are, and changing users means signing
+out and picking again. Every fetch surface has loading skeletons,
 a designed empty state, and an error state with a Retry button; every mutation
 disables its control while pending and settles from the server's response.
 

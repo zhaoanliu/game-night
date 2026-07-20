@@ -52,7 +52,6 @@ test.describe('organizer', () => {
     await page.goto(`/events/${EVENTS.midweek}`)
 
     await expect(page.getByRole('heading', { name: `Attendees (${MIDWEEK_ROSTER.length})` })).toBeVisible()
-    // Scoped to main: the identity switcher also lists these names as options.
     const roster = page.locator('main ul')
     for (const name of MIDWEEK_ROSTER) {
       await expect(roster.getByText(name)).toBeVisible()

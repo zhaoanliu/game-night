@@ -108,6 +108,13 @@ The boundary is drawn so that swapping in real authentication (Supabase Auth +
 RLS read policies) changes `lib/auth.ts` and nothing else. That is the first
 item on the hardening list.
 
+The header deliberately offers only sign-out — no in-place identity switcher
+(decided 2026-07-19, on review). Swapping identity underneath an open page
+invites showing one user's data under another's session; review caught a bug
+of exactly that shape. With the picker as the only entry point, every identity
+change passes through sign-out and a full re-render, so the question cannot
+arise. The cost is one extra click in two-role demos.
+
 ### Seats close when the event starts
 
 The brief doesn't say when RSVPs stop. Decided: at `starts_at` — you cannot
