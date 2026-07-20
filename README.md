@@ -29,7 +29,27 @@ Seeded so the interesting states are visible immediately: several upcoming
 events, two with a single seat left, one completely full, one with no attendees
 yet, and one in the past.
 
-_Demo walkthrough: TBD (Phase C)._
+### Demo walkthrough
+
+1. Pick **Yuki Tanaka** — the seeded player who holds no RSVPs, so every state
+   below starts clean.
+2. Browse the board: **Commander Pod** is FULL (red), **Friday Night Magic**
+   and **Learn to Play: Gloomhaven** each show an amber "1 seat left".
+3. Open Gloomhaven and take the last seat — the badge flips to FULL for
+   everyone. Cancel, and the seat comes back. RSVP again; it's a fresh claim.
+4. Open Commander Pod: the RSVP button is disabled, with "Event is full"
+   inline. The server's 409 still backs the one case a disabled button can't
+   foresee — a page whose count went stale before the click (step 7's race
+   loser sees exactly that).
+5. **My events** tracks what you claimed, soonest first, with inline cancel;
+   empty again once you release everything.
+6. Sign out and pick **Alice Chen**. On the organizer page, **Midweek Board
+   Game Night** is marked *in progress* and still listed — open it and the
+   attendee roster is right there, at the moment an organizer actually needs
+   it. Sign out, pick **Ben Okafor**, and revisit: same page, no roster.
+7. The race the product exists for: open a one-seat event as two different
+   players in a normal and a private window, and click RSVP in both at once.
+   Exactly one wins; the other reads "Event is full".
 
 ## How it works
 
@@ -49,6 +69,26 @@ resolves who you are from a session cookie and decides what that role may do.
 | `DELETE /api/events/:id/rsvp` | player | release a seat; returns fresh `attendee_count`/`seats_left` |
 | `GET /api/my-events?when=` | player | `upcoming` (default) soonest first, or `past` most recent first |
 | `GET /api/organizer/events` | organizer | your own not-yet-ended events, in-progress first |
+
+The pages are thin server shells over client components that fetch from those
+endpoints — one data path, whether the request comes from the UI or curl:
+
+| Page | Who | What |
+|---|---|---|
+| `/` | any signed-in user | browse upcoming events: search, game-type chips, seat badges |
+| `/events/:id` | any signed-in user | detail; players claim/release a seat, the owning organizer sees the roster |
+| `/my-events` | player | upcoming RSVPs soonest first, inline cancel |
+| `/organizer` | organizer | create form plus your own not-yet-ended events |
+
+Identity is resolved once, in the root layout: with no session cookie a
+full-screen login page (one dropdown, no password) replaces the app. Identity
+then sticks until you sign out — the header shows who you are, and changing
+users means signing out and picking again. Signing in lands you on your role's
+home (players → the board, organizers → their page) unless you deep-linked to
+a page your role can use, which is preserved. Every fetch surface has loading
+skeletons,
+a designed empty state, and an error state with a Retry button; every mutation
+disables its control while pending and settles from the server's response.
 
 Errors share one shape — `{"error": {"code", "message"}}` — with a `fields` map
 added for validation failures so a form can show the problem next to the input
@@ -170,11 +210,23 @@ is the bug this design exists to prevent, and the suite catches it.
 ### The rest of the tests
 
 `npm run test:coverage` runs the unit tests — validation rules, the error
-envelope, the status-to-HTTP mapping — over pure logic with no database. The
-data-access modules and route handlers are deliberately excluded from that
-coverage report and covered by the integration suite instead: mocking a query
-builder would only assert that it was called in a particular order, which is
-exactly the kind of test that stays green while the query is wrong.
+envelope, the status-to-HTTP mapping, and every UI component (the RSVP button's
+pending/409/422 branches, the form's field errors, the loading/empty/error
+states) — with no database. The data-access modules and route handlers are
+deliberately excluded from that coverage report and covered by the integration
+suite instead: mocking a query builder would only assert that it was called in
+a particular order, which is exactly the kind of test that stays green while
+the query is wrong.
+
+`npx playwright test -c playwright.config.local.ts` drives the built app in a
+real browser through eight specs — the identity gate, browse filters, the
+pending RSVP flow, the full-event rejection, cancel-frees-a-seat, my-events,
+the organizer form and the roster ownership boundary, and the
+loading/empty/error states. Each is tagged with the acceptance criterion it
+proves (`[AC-11-n]`). The config builds and serves a production bundle on
+purpose: dev servers hide hydration and chunking bugs. Specs restore whatever
+they change through the public API — the service role can't write `rsvps`, and
+the tests live under the same rules as everything else.
 
 Every PR is gated by CI: ESLint, `tsc --noEmit`, the route-exports check, and
 actionlint (`.github/workflows/lint.yml`); unit tests with coverage thresholds,
