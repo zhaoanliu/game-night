@@ -7,6 +7,7 @@ import { createClient } from '@supabase/supabase-js'
 export const USERS = {
   alice: '22222222-2222-2222-2222-222222222201', // organizer of Midweek (in progress)
   ben: '22222222-2222-2222-2222-222222222202', // another organizer
+  amara: '33333333-3333-3333-3333-333333330001', // player seated at every seeded event
   yuki: '33333333-3333-3333-3333-333333330012', // player holding no RSVPs
 }
 
@@ -15,6 +16,7 @@ export const EVENTS = {
   commanderPod: '11111111-1111-1111-1111-111111110002', // FULL at 4
   heavyEuro: '11111111-1111-1111-1111-111111110003', // 3 of 8, starts in 5 days
   gloomhaven: '11111111-1111-1111-1111-111111110004', // 1 seat left of 6
+  tombOfHorrors: '11111111-1111-1111-1111-111111110005', // 2 of 5 (Amara, Devon)
   midweek: '11111111-1111-1111-1111-111111110010', // happening right now
 }
 
