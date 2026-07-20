@@ -40,5 +40,3 @@ export function seatsLabel(seatsLeft: number): string {
 export function isInProgress(startsAt: string, endsAt: string, now: number = Date.now()): boolean {
   return Date.parse(startsAt) <= now && Date.parse(endsAt) > now
 }
-
-export const selfHealCanaryTypeError: number = "deliberately not a number (Phase D self-heal canary)"
