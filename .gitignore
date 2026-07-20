@@ -5,7 +5,7 @@ PLAN.md
 .claude/settings.local.json
 
 # dependencies / build
-node_modules/
+node_modules
 .next/
 out/
 

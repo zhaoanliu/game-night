@@ -1,0 +1,74 @@
+name: CD failure monitor
+
+on:
+  workflow_run:
+    workflows: ["CD"]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  monitor:
+    if: github.event.workflow_run.conclusion == 'startup_failure' || github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine if auto-fix was dispatched
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          CD_COMPLETED_AT: ${{ github.event.workflow_run.updated_at }}
+        run: |
+          if [[ "$CONCLUSION" == "startup_failure" ]]; then
+            echo "needs_issue=true" >> "$GITHUB_OUTPUT"
+            echo "reason=startup_failure" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Wait for the auto-fix run to appear in the API if the dispatch succeeded.
+          # CD failures dispatch to db-fix, cd-auto-fix, or (for failed CI gates)
+          # ci-auto-fix — any of them counts as handled.
+          sleep 30
+          RECENT=0
+          for WF in cd-auto-fix.yml db-fix.yml ci-auto-fix.yml; do
+            N=$(gh run list --workflow="$WF" --limit 10 \
+              --json createdAt \
+              | jq --arg after "$CD_COMPLETED_AT" \
+                "[.[] | select(.createdAt >= \$after)] | length")
+            RECENT=$((RECENT + N))
+          done
+          if [[ "$RECENT" -gt 0 ]]; then
+            echo "needs_issue=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needs_issue=true" >> "$GITHUB_OUTPUT"
+            echo "reason=dispatch_failed" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open or update issue
+        if: steps.check.outputs.needs_issue == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          REASON: ${{ steps.check.outputs.reason }}
+        run: |
+          SHORT_SHA="${SHA:0:7}"
+          if [[ "$REASON" == "startup_failure" ]]; then
+            TITLE="CD failure: workflow startup failure"
+            DETAIL="The CD workflow failed to start (\`startup_failure\`) — no steps ran. This is typically caused by a workflow YAML error, invalid action version, or permissions misconfiguration."
+          else
+            TITLE="CD failure: dispatch to auto-fix failed"
+            DETAIL="The CD workflow failed at runtime but no auto-fix workflow was triggered. This may indicate a missing or expired \`GH_PAT\`, a \`jq\` construction error, or a GitHub API failure in the dispatch step."
+          fi
+          EXISTING=$(gh issue list \
+            --state open \
+            --limit 50 \
+            --json number,title \
+            | jq -r --arg title "$TITLE" ".[] | select(.title == \$title) | .number" \
+            | head -1)
+          if [[ -n "$EXISTING" ]]; then
+            gh issue comment "$EXISTING" \
+              --body "Another failure — commit \`${SHORT_SHA}\`: ${RUN_URL}"
+          else
+            BODY=$(printf "## CD failure\n\n%s\n\n**Commit:** \`%s\`\n**Run:** %s\n\nThis issue auto-closes on the next successful CD run." \
+              "$DETAIL" "$SHORT_SHA" "$RUN_URL")
+            gh issue create --title "$TITLE" --body "$BODY"
+          fi
