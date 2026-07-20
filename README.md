@@ -1,147 +1,186 @@
 # Game Night
 
 A community event board for tabletop-game players. Organizers post events with
-a fixed number of seats; players browse what's coming up, see how full each
-event is, and claim or release a seat. Seats are first-come-first-served and an
-event can never be over-booked — including when two players go for the last
-seat at the same instant.
+a fixed number of seats; players browse upcoming events, see how full each one
+is, and claim or release a seat. Seats are first-come-first-served, and an event
+can never be overbooked — including when two players compete for the final seat
+at the same instant.
 
-Next.js (App Router) + TypeScript on the front, Next.js route handlers +
-Postgres (Supabase) on the back, talking over HTTP.
+Built as a take-home project, with an emphasis on correctness under
+concurrency, maintainability, and production-oriented engineering practices.
 
-**Hosted preview:** https://game-night-livid.vercel.app — same seed data as
-local; pick a seeded user and try to grab the last seat.
+**Hosted preview:** https://game-night-livid.vercel.app
 
-## Run it
+The preview is hosted on Vercel with a hosted Supabase PostgreSQL database and
+the same seeded scenarios as local development. Pick a seeded user and try to
+grab the last seat.
 
-Prerequisites: Node 20+ and Docker (Docker Desktop running — the local
-Postgres runs in a container).
+## Architecture
+
+```mermaid
+flowchart TD
+  UI["React UI"] -- "HTTPS" --> API["Next.js Route Handlers"]
+  API -- "SQL / RPC" --> DB["Supabase PostgreSQL"]
+```
+
+The browser never accesses PostgreSQL directly. Every read and write flows
+through the Next.js API. The API resolves identity from an HTTP-only cookie,
+performs server-side authorization, and delegates seat allocation to database
+functions that enforce capacity and idempotency under concurrency.
+
+A component-level view is in [`doc/architecture.md`](doc/architecture.md).
+
+## Run locally
+
+Prerequisites: Node 20+ and Docker Desktop.
 
 ```bash
 npm install
 npm run setup
 ```
 
-`setup` starts local Supabase, applies the schema, loads seed data, and starts
-the app on http://localhost:3000. Stop the database afterwards with
-`npx supabase stop`.
+`setup` starts local Supabase, applies migrations, loads seed data, and starts
+the application at http://localhost:3000.
 
-Seed data makes the interesting states visible immediately: several upcoming
-events, two with one seat left, one completely full, one with no attendees
-yet, and one in the past. A guided tour of every state — including how to
-reproduce the last-seat race yourself — is in
-[`doc/walkthrough.md`](doc/walkthrough.md).
+Stop the local database afterwards with:
+
+```bash
+npx supabase stop
+```
+
+The seed data includes upcoming, full, empty, past, and one-seat-left events.
+See [`doc/walkthrough.md`](doc/walkthrough.md) for a guided tour and instructions
+for reproducing the last-seat race manually.
 
 ## Key design decisions
 
-**Capacity and duplicates (S1, S2) are enforced in the database, not in
-application code.** `rsvp_to_event` locks the event row (`SELECT … FOR
-UPDATE`) before counting seats and inserting, so concurrent RSVPs serialize
-behind that lock; a `primary key (event_id, player_id)` backs up the
-one-RSVP-per-player rule. Route handlers never write the `rsvps` table
-directly — and can't: the application's database role has no
-`insert`/`update`/`delete` privilege on it. The capacity rule isn't a
-convention the code agrees to follow; it's the only path the database leaves
-open.
+### Capacity and duplicate protection
 
-**Counts / freshness (S3): computed at read time, exact.** The event list
-reads from a view that counts RSVPs, so displayed counts are exact rather than
-eventually consistent — at launch scale the join is cheap. A count can still
-go stale between page load and click; the server is the source of truth and
-the UI handles the "someone beat you to it" `409`. The RSVP button is
-deliberately *non*-optimistic and settles from the server's response — in this
-product, "two people went for the last seat" is not an edge case, it's the
-point.
+Capacity and duplicate RSVP rules are enforced in PostgreSQL rather than in
+application memory.
 
-**Identity is a name picker, authorization is real.** No authentication, as
-the brief allows: you pick a name and the server stores that user's id in an
-httpOnly cookie. But roles and ownership are re-checked server-side on every
-request — a player cannot create events, and one organizer cannot read
-another's attendee list. Swapping in real auth changes `lib/auth.ts` and
-nothing else.
+`rsvp_to_event` locks the event row with `SELECT ... FOR UPDATE` before checking
+capacity and inserting. Concurrent requests for the same event therefore
+serialize around the invariant, while requests for different events proceed
+independently.
 
-**Scale by adding, not rewriting.** The 12-month numbers (~100× read volume on
-the list) are reached without touching the API surface or the enforcement
-point: (1) denormalize the count onto `events`, maintained inside the two
-locked functions — the only writers, so it can't drift; (2) short-TTL caching
-on the list read — exactly the "modest staleness" the brief permits; (3) read
-replicas for browsing, writes stay on the primary where the lock lives;
-(4) keyset pagination. The write path — the part that must be correct — never
-changes.
+A composite primary key on `(event_id, player_id)` guarantees that retries and
+double submissions cannot create duplicate RSVPs. The application role cannot
+write to `rsvps` directly; it can only call the locked RSVP and cancellation
+functions.
 
-Assumptions made where the brief is silent (events get an end time; seats
-close at start; hard-delete cancellation; exclusive roles; RSVP status codes)
-and the trade-offs behind the arguable calls are recorded in
-[`doc/decisions.md`](doc/decisions.md). The schema, the oversell race, and the
-rejected alternatives are in
-[`doc/data-model-and-concurrency.md`](doc/data-model-and-concurrency.md). The
-full API surface is in [`doc/api.md`](doc/api.md).
+### Counts and freshness
 
-## Proving S1/S2
+Attendee counts are computed at read time through a database view, so they are
+exact when returned. The UI remains deliberately non-optimistic: a count may
+become stale between page load and click, so the RSVP result always settles
+from the server response. A losing last-seat request receives `409 Conflict`
+rather than briefly showing a false success.
+
+### Identity and authorization
+
+Authentication is intentionally simplified, as permitted by the brief. A user
+selects a seeded identity, which is stored in an HTTP-only cookie.
+
+Authorization is still enforced server-side on every request. Players cannot
+create events, and organizers cannot access attendee lists for events they do
+not own. Replacing the picker with a real identity provider is isolated behind
+`lib/auth.ts`.
+
+### Scaling approach
+
+The current implementation targets launch-scale traffic while preserving an
+incremental path to the brief's 12-month projections. The likely progression is:
+
+1. Denormalize `attendee_count` onto `events`, maintained inside the same locked
+   database functions.
+2. Add short-TTL caching for event-list reads, where modest staleness is allowed.
+3. Serve browse and detail reads from replicas while RSVP writes remain on the
+   primary.
+4. Add keyset pagination on `starts_at`.
+
+The API contract and invariant-enforcement point remain unchanged throughout.
+
+Further rationale is documented in:
+
+- [`doc/decisions.md`](doc/decisions.md) — assumptions and product trade-offs
+- [`doc/data-model-and-concurrency.md`](doc/data-model-and-concurrency.md) — schema, locking, invariants, and alternatives
+- [`doc/api.md`](doc/api.md) — API surface and response behavior
+
+## Testing
 
 ```bash
 npx supabase start
 npm run test:integration
 ```
 
-This builds the app and fires concurrent HTTP requests at the real server: 20
-players race for 5 seats and exactly 5 win; 10 race for 1 seat and exactly one
-wins; a double-submitted RSVP yields one row. The test has teeth — removing
-`for update` from the RSVP function makes it fail with 13 players seated at a
-5-seat event. Unit tests (`npm run test:coverage`) and Playwright E2E against
-a production build round it out; details in [`doc/testing.md`](doc/testing.md).
+The integration suite builds the application and exercises the real HTTP API
+against PostgreSQL. It verifies that:
+
+- 20 players racing for 5 seats produce exactly 5 successful RSVPs
+- 10 players racing for 1 seat produce exactly 1 winner
+- concurrent duplicate submissions create exactly one RSVP row
+- cancellation immediately releases a seat for another player
+
+The test has teeth: removing `FOR UPDATE` causes the race tests to fail, including
+13 players being seated at a 5-seat event.
+
+Additional coverage includes unit tests and Playwright end-to-end tests against
+a production build. See [`doc/testing.md`](doc/testing.md).
 
 ## Time spent
 
-About 14 hours wall-clock over three days, reconstructed from the commit and
-PR record:
+Approximately 8 hours over three days, reconstructed from the commit and pull
+request history.
 
 | Work | Time |
-|---|---|
-| Product thinking, data-model design, PLAN.md | ~2.5 h |
-| Phase A — scaffold, schema + seed, local Supabase, CI skeleton | ~3 h |
-| Phase B — API, auth boundary, RSVP functions, integration proof | ~3 h |
-| Phase C — UI, all states, Playwright e2e vs production build | ~2.5 h |
-| Phase D — CI gates + automation pipeline adoption | ~1.5 h |
-| Phase E — hosted Supabase, Vercel, CD with hosted smoke | ~2 h |
-| Phase F — dogfood run, README, clean-clone drill | ~1 h |
+|---|---:|
+| Product thinking, data-model design, and planning | ~2 h |
+| Scaffold, schema, seed data, local Supabase, and CI skeleton | ~1 h |
+| API, authorization boundary, RSVP functions, and integration proof | ~1 h |
+| UI states and Playwright end-to-end coverage | ~1 h |
+| CI and automation-pipeline adoption | ~0.5 h |
+| Hosted Supabase, Vercel deployment, and hosted smoke test | ~0.5 h |
+| Dogfooding, documentation, and clean-clone verification | ~1 h |
+| Final documentation with diagram | ~1 h |
 
-The concurrency path got the disproportionate share deliberately: schema and
-locked functions were designed before any application code, and the
-integration suite that proves them was written against the API contract, not
-the implementation.
+The concurrency path received a disproportionate share deliberately: the schema
+and locked functions were designed before any application code, and the
+integration suite that proves them was written against the API contract rather
+than the implementation.
 
 ## Before real traffic
 
 In rough priority order:
 
-1. **Real authentication.** Identity is a self-asserted picker (the brief's
-   stated scope); authorization is already server-side per request, so this is
-   a `lib/auth.ts` swap — but until then, anyone can present any user id.
-2. **Rate limiting** on the write endpoints — the RSVP path is an obvious
-   target for scripted seat-grabbing.
-3. **Observability** — structured request logs, latency/error metrics, alerts
-   on lock wait time and 409 rates (the early warnings for RSVP contention).
-4. **Soft-delete / audit trail for RSVPs.** Cancellation is a hard delete
-   today (a recorded trade-off); real disputes ("I had a seat!") need history.
-5. **Pagination** on the event list before it's needed, keyset from the start.
-6. **Load-test the RSVP path** — the tests prove correctness under
-   concurrency, not throughput under contention.
-7. **Operational hygiene** — Postgres PITR backups, a staging environment for
-   migrations.
+1. Replace the self-asserted identity picker with real authentication and Row Level Security.
 
-## How this was built and verified
+2. Add rate limiting to RSVP and cancellation endpoints.
 
-With [Claude Code](https://claude.com/claude-code), under a process the repo
-itself enforces: `main` is read-only, and every change started as a GitHub
-issue and arrived via a PR gated by five required CI checks (lint, unit,
-build, the concurrency integration suite, and E2E against a production build).
-The graded heart — schema, the locked SQL functions, the auth boundary, and
-the integration suite — was built directly and reviewed line-by-line; the
-repetitive perimeter (UI states, Playwright specs, CI plumbing) was delegated
-to an automation pipeline and reviewed at the PR boundary. Verification never
-relied on trust in generation: every claim above maps to a check that fails if
-it stops being true, and a clean-clone drill of the run instructions was the
-final step. The pipeline, CD to the hosted preview, and what was delegated
-vs. hand-built are described in
-[`doc/ci-and-automation.md`](doc/ci-and-automation.md).
+3. Bound the lock path with `lock_timeout` and `statement_timeout` so lock contention becomes an explicit retryable failure instead of exhausting the connection pool.
+
+4. Add production observability: structured logs, request tracing, endpoint latency/error metrics, and RSVP-specific metrics such as lock wait time, contention, and `409 event_full` rates. Alert on player-visible symptoms rather than infrastructure metrics.
+
+5. Wire production error monitoring (Sentry or equivalent) with source maps and automatic issue creation.
+
+6. Make production deploys automatically reversible after failed smoke tests while keeping database migrations backward compatible.
+
+7. Add an append-only audit trail for seat claims and cancellations inside the same transaction as the RSVP update.
+
+8. Add keyset pagination before event-list growth makes it necessary.
+
+9. Load-test the RSVP path to establish throughput limits under realistic contention.
+
+10. Add PITR backups, restore drills, and operational runbooks.
+
+## AI usage
+
+Claude Code and ChatGPT were used to accelerate implementation, documentation,
+and test generation.
+
+All architecture decisions, concurrency control, and production-critical code
+were reviewed and verified manually. The CI pipeline validates the core
+correctness guarantees through unit, integration, and end-to-end tests.
+
+See [`doc/ci-and-automation.md`](doc/ci-and-automation.md) for the development
+workflow, deployment pipeline, and automation boundaries.
