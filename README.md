@@ -281,19 +281,106 @@ case, it's the point.
 
 ## Scaling
 
-_TBD._
+At launch scale (~50 events, hundreds of players) the implementation runs as-is:
+counts are exact at read time via a view that joins RSVPs, and every write takes
+a row lock held for microseconds. Nothing is cached, denormalized, or eventually
+consistent, because nothing needs to be yet.
+
+The brief's 12-month numbers (~100× read volume on the event list) are reached
+by adding, not rewriting — each step leaves the API surface, the SQL function
+signatures, and the enforcement point untouched:
+
+1. **Denormalize the count** onto `events.attendee_count`, maintained *inside*
+   the two locked functions — they are the only writers, so it cannot drift.
+   The list read drops its join.
+2. **Short-TTL caching** on the list read — exactly the "modest staleness" the
+   brief permits, spent where it buys the most: event-day read spikes.
+3. **Read replicas** for browsing; writes stay on the primary, where the lock
+   lives.
+4. **Keyset pagination** on `starts_at` when offset paging gets expensive.
+
+The write path — the part that must be correct — does not change at any step.
+The full reasoning, including the alternatives that were rejected and why, is
+in [`doc/data-model-and-concurrency.md`](doc/data-model-and-concurrency.md).
 
 ## Time spent
 
-_TBD._
+About 14 hours wall-clock over three days, reconstructed from the commit and PR
+record:
+
+| Work | Time |
+|---|---|
+| Product thinking, data-model design, PLAN.md | ~2.5 h |
+| Phase A — scaffold, schema + seed, local Supabase, CI skeleton | ~3 h |
+| Phase B — API, auth boundary, RSVP functions, integration proof | ~3 h |
+| Phase C — UI, all states, Playwright e2e vs production build | ~2.5 h |
+| Phase D — CI gates + automation pipeline adoption | ~1.5 h |
+| Phase E — hosted Supabase, Vercel, CD with hosted smoke | ~2 h |
+| Phase F — dogfood run, README, clean-clone drill | ~1 h |
+
+The concurrency path got the disproportionate share deliberately: schema and
+locked functions were designed before any application code, and the integration
+suite that proves them was written against the API contract, not the
+implementation.
 
 ## Before real traffic
 
-_TBD._
+In rough priority order:
+
+1. **Real authentication.** Identity is currently a self-asserted picker (the
+   brief's stated scope) — authorization is already enforced server-side per
+   request, so swapping in Supabase Auth + RLS read policies changes
+   `lib/auth.ts` and nothing else. First item for a reason: until then, anyone
+   can present any user id.
+2. **Rate limiting** on the write endpoints — the RSVP path is an obvious
+   target for scripted seat-grabbing.
+3. **Observability** — structured request logs, latency and error-rate metrics,
+   and an alert on lock wait time and 409 rates (the early-warning signals for
+   RSVP contention).
+4. **Soft-delete / audit trail for RSVPs.** Cancellation is a hard delete
+   today (a recorded trade-off); real disputes ("I had a seat!") need history.
+5. **Pagination** on the event list before it is needed, keyset from the start.
+6. **Load-test the RSVP path** — the integration suite proves correctness under
+   concurrency, not throughput under contention; find the lock's saturation
+   point before event-day traffic does.
+7. **Operational hygiene** — Postgres PITR backups, a staging environment for
+   migrations ahead of the production-blocking migration step in CD.
 
 ## How this was built
 
-_Full write-up TBD (Phase F)._
+With [Claude Code](https://claude.com/claude-code), under a process the repo
+itself enforces: `main` is read-only, every change — including this README —
+started as a GitHub issue, was built on a branch in a worktree, and arrived
+via a PR gated by the five required checks. The rules live in
+[`CLAUDE.md`](CLAUDE.md), so every session (human-driven or bot) inherits them.
+
+Not everything was built the same way, on purpose:
+
+- **The graded heart was built directly and reviewed line-by-line.** The
+  schema, the two locked SQL functions, the auth boundary, and the integration
+  suite that proves S1/S2 were written first, slowly, before any UI existed —
+  the concurrency proof landed in the same PR as the API it proves.
+- **The repetitive perimeter was delegated.** UI states, Playwright specs,
+  CI plumbing, and fix-ups ran through the
+  [claude-dev-automation](https://github.com/zhaoanliu/claude-dev-automation)
+  pipeline described below, with review at the PR boundary instead of the
+  keystroke boundary.
+- **The pipeline was dogfooded on throwaway work before being trusted with
+  real work.** In Phase D a canary feature (#19, a site footer) ran the
+  factory end-to-end — `status: approved` generated a design issue with
+  acceptance criteria, `status: auto-implement` built it with Playwright
+  tests generated from those criteria, and opened PR #23 — which was then
+  deliberately closed unmerged: the point was proving the pipeline, not
+  shipping a footer. In Phase F the design stage ran on backlog issue #13,
+  and human review of the generated design (#29) caught a real defect —
+  acceptance-criteria tags numbered against the wrong issue, which would
+  have failed the AC-coverage gate. The human gates are not ceremony.
+
+Verification did not rely on trust in generation: every claim in this README
+maps to a check that fails if it stops being true — the integration suite for
+the invariants, AC-tagged e2e specs for the user stories, coverage thresholds,
+a route-shape check, and a clean-clone drill of the run instructions as the
+final step.
 
 ### CI and automation
 
