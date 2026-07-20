@@ -6,37 +6,16 @@ event is, and claim or release a seat. Seats are first-come-first-served and an
 event can never be over-booked — including when two players go for the last
 seat at the same instant.
 
-Built as a take-home project. Next.js (App Router) + TypeScript on the front,
-Next.js route handlers + Postgres (Supabase) on the back.
+Next.js (App Router) + TypeScript on the front, Next.js route handlers +
+Postgres (Supabase) on the back, talking over HTTP.
 
-**Live demo:** https://game-night-livid.vercel.app — hosted on Vercel against a
-hosted Supabase project, deployed automatically from `main` (see
-[CI and automation](#ci-and-automation)). Same seed data as local: pick a
-seeded user and try to grab the last seat.
-
-To put the live site back into the pristine demo state after playing with it,
-run from the repo root:
-
-```bash
-npx supabase db reset --linked
-```
-
-This drops the hosted database, re-applies the migrations, and re-runs
-`supabase/seed.sql`, restoring every state the
-[demo walkthrough](#demo-walkthrough) relies on — with the relative event times
-re-anchored to now. Merely re-running the seed would not do this: its inserts
-are `on conflict do nothing`, so leftover RSVPs would survive. You need the
-Supabase CLI logged in (`npx supabase login`) and the project linked
-(`npx supabase link --project-ref <ref>`); no redeploy is needed, only the data
-changes. Don't run it while a deploy from `main` is in flight — the CD smoke
-test RSVPs against the seeded events.
-
-> **Status:** in progress. Sections marked _TBD_ are filled in as the phases land.
+**Hosted preview:** https://game-night-livid.vercel.app — same seed data as
+local; pick a seeded user and try to grab the last seat.
 
 ## Run it
 
-Prerequisites: Node 20+ and Docker (Docker Desktop running — the local Postgres
-runs in a container).
+Prerequisites: Node 20+ and Docker (Docker Desktop running — the local
+Postgres runs in a container).
 
 ```bash
 npm install
@@ -47,266 +26,75 @@ npm run setup
 the app on http://localhost:3000. Stop the database afterwards with
 `npx supabase stop`.
 
-Seeded so the interesting states are visible immediately: several upcoming
-events, two with a single seat left, one completely full, one with no attendees
-yet, and one in the past.
+Seed data makes the interesting states visible immediately: several upcoming
+events, two with one seat left, one completely full, one with no attendees
+yet, and one in the past. A guided tour of every state — including how to
+reproduce the last-seat race yourself — is in
+[`doc/walkthrough.md`](doc/walkthrough.md).
 
-### Demo walkthrough
+## Key design decisions
 
-1. Pick **Yuki Tanaka** — the seeded player who holds no RSVPs, so every state
-   below starts clean.
-2. Browse the board: **Commander Pod** is FULL (red), **Friday Night Magic**
-   and **Learn to Play: Gloomhaven** each show an amber "1 seat left".
-3. Open Gloomhaven and take the last seat — the badge flips to FULL for
-   everyone. Cancel, and the seat comes back. RSVP again; it's a fresh claim.
-4. Open Commander Pod: the RSVP button is disabled, with "Event is full"
-   inline. The server's 409 still backs the one case a disabled button can't
-   foresee — a page whose count went stale before the click (step 7's race
-   loser sees exactly that).
-5. **My events** tracks what you claimed, soonest first, with inline cancel;
-   empty again once you release everything.
-6. Sign out and pick **Alice Chen**. On the organizer page, **Midweek Board
-   Game Night** is marked *in progress* and still listed — open it and the
-   attendee roster is right there, at the moment an organizer actually needs
-   it. Sign out, pick **Ben Okafor**, and revisit: same page, no roster.
-7. The race the product exists for: open a one-seat event as two different
-   players in a normal and a private window, and click RSVP in both at once.
-   Exactly one wins; the other reads "Event is full".
+**Capacity and duplicates (S1, S2) are enforced in the database, not in
+application code.** `rsvp_to_event` locks the event row (`SELECT … FOR
+UPDATE`) before counting seats and inserting, so concurrent RSVPs serialize
+behind that lock; a `primary key (event_id, player_id)` backs up the
+one-RSVP-per-player rule. Route handlers never write the `rsvps` table
+directly — and can't: the application's database role has no
+`insert`/`update`/`delete` privilege on it. The capacity rule isn't a
+convention the code agrees to follow; it's the only path the database leaves
+open.
 
-## How it works
+**Counts / freshness (S3): computed at read time, exact.** The event list
+reads from a view that counts RSVPs, so displayed counts are exact rather than
+eventually consistent — at launch scale the join is cheap. A count can still
+go stale between page load and click; the server is the source of truth and
+the UI handles the "someone beat you to it" `409`. The RSVP button is
+deliberately *non*-optimistic and settles from the server's response — in this
+product, "two people went for the last seat" is not an edge case, it's the
+point.
 
-A Next.js front end talking to Next.js route handlers over HTTP. The browser
-never reaches the database: every read and write goes through the API, which
-resolves who you are from a session cookie and decides what that role may do.
+**Identity is a name picker, authorization is real.** No authentication, as
+the brief allows: you pick a name and the server stores that user's id in an
+httpOnly cookie. But roles and ownership are re-checked server-side on every
+request — a player cannot create events, and one organizer cannot read
+another's attendee list. Swapping in real auth changes `lib/auth.ts` and
+nothing else.
 
-| Endpoint | Who | What |
-|---|---|---|
-| `GET/POST/DELETE /api/session` | anyone | read, set, or clear "who am I" |
-| `GET /api/users` | anyone | the roster for the identity picker |
-| `GET /api/events?q=&game_type=` | any signed-in user | upcoming events, soonest first, with counts and seats left |
-| `POST /api/events` | organizer | create an event |
-| `GET /api/events/:id` | any signed-in user | one event, plus whether *you* hold a seat |
-| `GET /api/events/:id/attendees` | owning organizer | the attendee list for your own event |
-| `POST /api/events/:id/rsvp` | player | claim a seat; returns fresh `attendee_count`/`seats_left` |
-| `DELETE /api/events/:id/rsvp` | player | release a seat; returns fresh `attendee_count`/`seats_left` |
-| `GET /api/my-events?when=` | player | `upcoming` (default) soonest first, or `past` most recent first |
-| `GET /api/organizer/events` | organizer | your own not-yet-ended events, in-progress first |
+**Scale by adding, not rewriting.** The 12-month numbers (~100× read volume on
+the list) are reached without touching the API surface or the enforcement
+point: (1) denormalize the count onto `events`, maintained inside the two
+locked functions — the only writers, so it can't drift; (2) short-TTL caching
+on the list read — exactly the "modest staleness" the brief permits; (3) read
+replicas for browsing, writes stay on the primary where the lock lives;
+(4) keyset pagination. The write path — the part that must be correct — never
+changes.
 
-The pages are thin server shells over client components that fetch from those
-endpoints — one data path, whether the request comes from the UI or curl:
+Assumptions made where the brief is silent (events get an end time; seats
+close at start; hard-delete cancellation; exclusive roles; RSVP status codes)
+and the trade-offs behind the arguable calls are recorded in
+[`doc/decisions.md`](doc/decisions.md). The schema, the oversell race, and the
+rejected alternatives are in
+[`doc/data-model-and-concurrency.md`](doc/data-model-and-concurrency.md). The
+full API surface is in [`doc/api.md`](doc/api.md).
 
-| Page | Who | What |
-|---|---|---|
-| `/` | any signed-in user | browse upcoming events: search, game-type chips, seat badges |
-| `/events/:id` | any signed-in user | detail; players claim/release a seat, the owning organizer sees the roster |
-| `/my-events` | player | upcoming RSVPs soonest first, inline cancel |
-| `/organizer` | organizer | create form plus your own not-yet-ended events |
-
-Identity is resolved once, in the root layout: with no session cookie a
-full-screen login page (one dropdown, no password) replaces the app. Identity
-then sticks until you sign out — the header shows who you are, and changing
-users means signing out and picking again. Signing in lands you on your role's
-home (players → the board, organizers → their page) unless you deep-linked to
-a page your role can use, which is preserved. Every fetch surface has loading
-skeletons,
-a designed empty state, and an error state with a Retry button; every mutation
-disables its control while pending and settles from the server's response.
-
-Errors share one shape — `{"error": {"code", "message"}}` — with a `fields` map
-added for validation failures so a form can show the problem next to the input
-that caused it. Every write is validated server-side regardless of what the
-client checked.
-
-RSVP responses distinguish outcomes that matter to a player: `201` for a new
-seat, `200` for a repeat submission that found the seat already held, `409` when
-the event filled up first, `422` for an event that already started.
-
-"My events" answers two different questions, so it takes a `when` parameter
-rather than returning one merged list. `upcoming` is the default and sorts
-soonest first — the commuting player asking what's next. `past` sorts most
-recent first, because history is read backwards from now. An unrecognised value
-is a `400` rather than a silent fallback to upcoming, so a typo in a client
-surfaces immediately instead of showing plausible but wrong data.
-
-Events have an end time as well as a start (organizers may set it; it defaults
-to a three-hour session), and the lists deliberately use different boundaries.
-Browsing keys off the start time — it's about what you can still join, and
-seats close when an event begins. "My events" and the organizer's own list key
-off the end time — an event happening right now is something you're part of, or
-running, and haven't finished. It stays on the player's list while they're at
-the table, and on the organizer's page at check-in time, when the attendee
-roster matters most.
-
-RSVP and cancel responses include the updated `attendee_count` and `seats_left`,
-so the UI settles from a single round trip: the number a player sees after
-acting is the server's answer, not a client-side guess. This pairs with the
-deliberately *non*-optimistic RSVP button — under contention the server is the
-source of truth, and "You're in!" should never be shown and then taken back.
-
-### Identity
-
-There is no authentication, as the brief allows. You pick a name, and the server
-stores that user's id in an httpOnly cookie. What the server does *not* do is
-trust the client about anything else: roles and ownership are re-checked from
-that session on every request, so a player cannot create events and one
-organizer cannot read another's attendee list. Swapping this for real
-authentication means changing `lib/auth.ts` and nothing else.
-
-### Capacity and duplicate RSVPs
-
-Both invariants are enforced in the database rather than in application code.
-`rsvp_to_event` locks the event row (`SELECT … FOR UPDATE`) before counting
-seats and inserting, so concurrent RSVPs for the same event serialize behind
-that lock and the count-then-insert can't interleave. The
-`primary key (event_id, player_id)` backs up the one-RSVP-per-player rule.
-
-Route handlers never write to `rsvps` directly — and can't. The application's
-database role has no `insert`, `update`, or `delete` privilege on that table;
-seats are claimed and released only by calling the two locking functions. The
-capacity rule isn't a convention the code agrees to follow, it's the only path
-the database leaves open.
-
-[`doc/data-model-and-concurrency.md`](doc/data-model-and-concurrency.md)
-describes the tables in full and walks through the race this prevents, the
-alternatives considered, and the path to the 12-month scale numbers.
-
-The proof is an integration suite that fires concurrent HTTP requests at a
-running server — see _Proving it_ below.
-
-### Attendee counts
-
-Counts are computed at read time (`events_with_counts`), so they are exact
-rather than eventually consistent. A count can still go stale between page load
-and click; the server is the source of truth and the UI handles a "someone beat
-you to it" response. The path to much higher read volume is described in
-_Scaling_.
-
-## Proving it
+## Proving S1/S2
 
 ```bash
-npx supabase start      # if it isn't already running
+npx supabase start
 npm run test:integration
 ```
 
-This builds the app, starts the real server, and fires concurrent HTTP requests
-at it. Testing the SQL function directly would prove less — the brief asks that
-the *API* enforce capacity, so the session, the role check, and the route
-handler are all in the path.
-
-What it asserts:
-
-- **20 players race for 5 seats.** Exactly 5 get `201`, exactly 15 get `409`,
-  and the database holds exactly 5 rows.
-- **10 players race for 1 seat.** Exactly one wins.
-- **One player submits the same RSVP 10 times in parallel.** One `201`, nine
-  `200 already_rsvpd`, one row.
-- **A seat-holder retries on an event that has since filled.** Reads as
-  `already_rsvpd`, not `event_full` — they have a seat, and a retry shouldn't
-  suggest otherwise.
-- **Cancelling frees the seat**, two waiting players race for it, exactly one
-  wins, and the canceller can claim it again afterwards.
-- Cancelling a seat you don't hold is a no-op rather than an error.
-
-Each test creates its own users and events and cleans up after itself, so the
-suite doesn't depend on seed data. Note how it cleans up: by deleting the
-*event* and letting the foreign key cascade, because the application's database
-role has no privilege to delete RSVP rows — the tests live under the same
-constraint as production code.
-
-### The test has teeth
-
-A concurrency test that passes proves nothing unless it fails when the
-protection is removed. Removing `for update` from the RSVP function and
-re-running the suite:
-
-```
-× seats exactly capacity when 20 players race for 5 seats
-  → expected [ …(13) ] to have a length of 5 but got 13
-× holds when the race is for a single remaining seat
-  → expected [ …(10) ] to have a length of 1 but got 10
-```
-
-Thirteen players seated at a five-seat event, and ten at a one-seat event. That
-is the bug this design exists to prevent, and the suite catches it.
-
-### The rest of the tests
-
-`npm run test:coverage` runs the unit tests — validation rules, the error
-envelope, the status-to-HTTP mapping, and every UI component (the RSVP button's
-pending/409/422 branches, the form's field errors, the loading/empty/error
-states) — with no database. The data-access modules and route handlers are
-deliberately excluded from that coverage report and covered by the integration
-suite instead: mocking a query builder would only assert that it was called in
-a particular order, which is exactly the kind of test that stays green while
-the query is wrong.
-
-`npx playwright test -c playwright.config.local.ts` drives the built app in a
-real browser through eight specs — the identity gate, browse filters, the
-pending RSVP flow, the full-event rejection, cancel-frees-a-seat, my-events,
-the organizer form and the roster ownership boundary, and the
-loading/empty/error states. Each is tagged with the acceptance criterion it
-proves (`[AC-11-n]`). The config builds and serves a production bundle on
-purpose: dev servers hide hydration and chunking bugs. Specs restore whatever
-they change through the public API — the service role can't write `rsvps`, and
-the tests live under the same rules as everything else.
-
-Every PR is gated by CI: ESLint, `tsc --noEmit`, the route-exports check, and
-actionlint (`.github/workflows/lint.yml`); unit tests with coverage thresholds,
-a production build, and the HTTP-level concurrency suite against a real Postgres
-(`.github/workflows/test.yml`). The guarantee this product rests on is checked
-on every pull request, not just on my machine.
-
-## Design decisions
-
-The brief leaves gaps on purpose and asks for the judgment calls to be
-recorded. They live in two documents:
-
-- [`doc/decisions.md`](doc/decisions.md) — assumptions made beyond the brief
-  and why (events get an end time; RSVP history is queryable; roles are
-  exclusive; seats close at start; hard-delete cancellation; the bounded
-  vocabularies), and the trade-offs behind the arguable calls (pending vs.
-  optimistic RSVP, the idempotency contract, proving concurrency over HTTP,
-  what unit coverage deliberately excludes).
-- [`doc/data-model-and-concurrency.md`](doc/data-model-and-concurrency.md) —
-  the schema itself: the row-lock mechanism and the oversell race it prevents,
-  the composite primary key, exact-at-read counts, the privilege model, and
-  the rejected alternatives for each.
-
-The short version of the two most load-bearing choices: capacity is enforced
-by a `FOR UPDATE` row lock inside a SQL function that is the *only* writable
-path to a seat (the application role cannot touch the RSVP table directly),
-and the RSVP button reports what the server said rather than guessing —
-because in this product, "two people went for the last seat" is not an edge
-case, it's the point.
-
-## Scaling
-
-At launch scale (~50 events, hundreds of players) the implementation runs as-is:
-counts are exact at read time via a view that joins RSVPs, and every write takes
-a row lock held for microseconds. Nothing is cached, denormalized, or eventually
-consistent, because nothing needs to be yet.
-
-The brief's 12-month numbers (~100× read volume on the event list) are reached
-by adding, not rewriting — each step leaves the API surface, the SQL function
-signatures, and the enforcement point untouched:
-
-1. **Denormalize the count** onto `events.attendee_count`, maintained *inside*
-   the two locked functions — they are the only writers, so it cannot drift.
-   The list read drops its join.
-2. **Short-TTL caching** on the list read — exactly the "modest staleness" the
-   brief permits, spent where it buys the most: event-day read spikes.
-3. **Read replicas** for browsing; writes stay on the primary, where the lock
-   lives.
-4. **Keyset pagination** on `starts_at` when offset paging gets expensive.
-
-The write path — the part that must be correct — does not change at any step.
-The full reasoning, including the alternatives that were rejected and why, is
-in [`doc/data-model-and-concurrency.md`](doc/data-model-and-concurrency.md).
+This builds the app and fires concurrent HTTP requests at the real server: 20
+players race for 5 seats and exactly 5 win; 10 race for 1 seat and exactly one
+wins; a double-submitted RSVP yields one row. The test has teeth — removing
+`for update` from the RSVP function makes it fail with 13 players seated at a
+5-seat event. Unit tests (`npm run test:coverage`) and Playwright E2E against
+a production build round it out; details in [`doc/testing.md`](doc/testing.md).
 
 ## Time spent
 
-About 14 hours wall-clock over three days, reconstructed from the commit and PR
-record:
+About 14 hours wall-clock over three days, reconstructed from the commit and
+PR record:
 
 | Work | Time |
 |---|---|
@@ -319,106 +107,41 @@ record:
 | Phase F — dogfood run, README, clean-clone drill | ~1 h |
 
 The concurrency path got the disproportionate share deliberately: schema and
-locked functions were designed before any application code, and the integration
-suite that proves them was written against the API contract, not the
-implementation.
+locked functions were designed before any application code, and the
+integration suite that proves them was written against the API contract, not
+the implementation.
 
 ## Before real traffic
 
 In rough priority order:
 
-1. **Real authentication.** Identity is currently a self-asserted picker (the
-   brief's stated scope) — authorization is already enforced server-side per
-   request, so swapping in Supabase Auth + RLS read policies changes
-   `lib/auth.ts` and nothing else. First item for a reason: until then, anyone
-   can present any user id.
+1. **Real authentication.** Identity is a self-asserted picker (the brief's
+   stated scope); authorization is already server-side per request, so this is
+   a `lib/auth.ts` swap — but until then, anyone can present any user id.
 2. **Rate limiting** on the write endpoints — the RSVP path is an obvious
    target for scripted seat-grabbing.
-3. **Observability** — structured request logs, latency and error-rate metrics,
-   and an alert on lock wait time and 409 rates (the early-warning signals for
-   RSVP contention).
+3. **Observability** — structured request logs, latency/error metrics, alerts
+   on lock wait time and 409 rates (the early warnings for RSVP contention).
 4. **Soft-delete / audit trail for RSVPs.** Cancellation is a hard delete
    today (a recorded trade-off); real disputes ("I had a seat!") need history.
-5. **Pagination** on the event list before it is needed, keyset from the start.
-6. **Load-test the RSVP path** — the integration suite proves correctness under
-   concurrency, not throughput under contention; find the lock's saturation
-   point before event-day traffic does.
+5. **Pagination** on the event list before it's needed, keyset from the start.
+6. **Load-test the RSVP path** — the tests prove correctness under
+   concurrency, not throughput under contention.
 7. **Operational hygiene** — Postgres PITR backups, a staging environment for
-   migrations ahead of the production-blocking migration step in CD.
+   migrations.
 
-## How this was built
+## How this was built and verified
 
 With [Claude Code](https://claude.com/claude-code), under a process the repo
-itself enforces: `main` is read-only, every change — including this README —
-started as a GitHub issue, was built on a branch in a worktree, and arrived
-via a PR gated by the five required checks. The rules live in
-[`CLAUDE.md`](CLAUDE.md), so every session (human-driven or bot) inherits them.
-
-Not everything was built the same way, on purpose:
-
-- **The graded heart was built directly and reviewed line-by-line.** The
-  schema, the two locked SQL functions, the auth boundary, and the integration
-  suite that proves S1/S2 were written first, slowly, before any UI existed —
-  the concurrency proof landed in the same PR as the API it proves.
-- **The repetitive perimeter was delegated.** UI states, Playwright specs,
-  CI plumbing, and fix-ups ran through the
-  [claude-dev-automation](https://github.com/zhaoanliu/claude-dev-automation)
-  pipeline described below, with review at the PR boundary instead of the
-  keystroke boundary.
-- **The pipeline was dogfooded on throwaway work before being trusted with
-  real work.** In Phase D a canary feature (#19, a site footer) ran the
-  factory end-to-end — `status: approved` generated a design issue with
-  acceptance criteria, `status: auto-implement` built it with Playwright
-  tests generated from those criteria, and opened PR #23 — which was then
-  deliberately closed unmerged: the point was proving the pipeline, not
-  shipping a footer. In Phase F the design stage ran on backlog issue #13,
-  and human review of the generated design (#29) caught a real defect —
-  acceptance-criteria tags numbered against the wrong issue, which would
-  have failed the AC-coverage gate. The human gates are not ceremony.
-
-Verification did not rely on trust in generation: every claim in this README
-maps to a check that fails if it stops being true — the integration suite for
-the invariants, AC-tagged e2e specs for the user stories, coverage thresholds,
-a route-shape check, and a clean-clone drill of the run instructions as the
-final step.
-
-### CI and automation
-
-Every PR is gated by five required checks: `lint` (ESLint, tsc, route-export
-check, actionlint), `unit` (coverage thresholds plus an acceptance-criteria
-gate), `build`, `integration` (the S1/S2 concurrency proof against a real
-Postgres), and `e2e` (the full Playwright suite against a **production build**
-and a real local Supabase). Docs-only PRs skip the heavy jobs via a
-detect-doc-only gate while still satisfying branch protection.
-
-The repo runs the [claude-dev-automation](https://github.com/zhaoanliu/claude-dev-automation)
-pipeline, pinned at `@v2.0.0` (a release cut for this adoption: the previously
-vendor-and-adapt pieces — `verify-ac`, the retry script, the AC-coverage gate —
-were generalized behind action inputs, so this repo vendors nothing):
-
-- **Feature factory** — labeling an issue `status: approved` generates a design
-  issue with acceptance criteria (`[AC-<design>-<n>]` tags) and a
-  machine-readable plan; `status: auto-implement` implements it sub-task by
-  sub-task, generates Playwright tests from the acceptance criteria, self-heals
-  failures, and opens a PR that is always human-merged (`manual merge required`).
-- **Self-healing CI** — a failing check dispatches `ci-failure`; an auto-fix
-  workflow reads the logs, fixes the branch, verifies against the same local
-  gate set (including the integration suite), and pushes only if green.
-- **Bug-fix bot** — `bug`-labeled issues get a root-cause fix PR with
-  risk-gated auto-merge (low-risk ≤2-file fixes only).
-- **Rebase bot** — every push to main rebases conflicting PRs, with rule-based
-  AI conflict resolution.
-- **CD** — every push to `main` re-runs the full gate set (lint, test,
-  integration, e2e), applies migrations to the hosted Supabase project
-  (**before** the deploy — a failing migration blocks the release), deploys to
-  Vercel, then runs a hosted smoke test: the RSVP round-trip against the live
-  seeded events (`201 confirmed` on the last seat → `200 already_rsvpd` →
-  `409 event_full` on the full event → `200 cancelled`, seed restored). A
-  migration failure dispatches `db-fix` (constrained fix PR, never
-  auto-merged); any other deploy failure dispatches `cd-auto-fix`
-  (reproduce-locally → classify infra vs code → fix or file an issue); a
-  monitor workflow catches CD runs that die before they can dispatch.
-
-Bot runs use the library-default model (claude-sonnet-5 at v2.0.0). The bots'
-prompts encode this repo's invariants — most importantly that nothing writes
-`rsvps` outside the two locked SQL functions.
+itself enforces: `main` is read-only, and every change started as a GitHub
+issue and arrived via a PR gated by five required CI checks (lint, unit,
+build, the concurrency integration suite, and E2E against a production build).
+The graded heart — schema, the locked SQL functions, the auth boundary, and
+the integration suite — was built directly and reviewed line-by-line; the
+repetitive perimeter (UI states, Playwright specs, CI plumbing) was delegated
+to an automation pipeline and reviewed at the PR boundary. Verification never
+relied on trust in generation: every claim above maps to a check that fails if
+it stops being true, and a clean-clone drill of the run instructions was the
+final step. The pipeline, CD to the hosted preview, and what was delegated
+vs. hand-built are described in
+[`doc/ci-and-automation.md`](doc/ci-and-automation.md).
