@@ -359,4 +359,4 @@ Verified at the database layer while building this schema:
 The brief asks for proof at the API boundary, not just in the database. The
 integration suite that fires concurrent HTTP requests at a running server — 20
 players racing for 5 seats, and one player double-submitting — arrives with the
-API in the next phase, and is described in the README.
+API in the next phase, and is described in [testing.md](testing.md).
