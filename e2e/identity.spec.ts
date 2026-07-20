@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { EVENTS, USERS, signInAs } from './helpers'
+import { EVENTS, USERS, pickUser, signInAs } from './helpers'
 
 test.describe('identity', () => {
   test('picker gates every path until an identity is picked [AC-11-1]', async ({ page }) => {
@@ -7,8 +7,10 @@ test.describe('identity', () => {
 
     await expect(page.getByRole('heading', { name: 'Who are you?' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'My events' })).not.toBeVisible()
+    // A login form, minus the password: nothing submits until a user is chosen.
+    await expect(page.getByRole('button', { name: 'Sign in' })).toBeDisabled()
 
-    await page.getByRole('button', { name: 'Yuki Tanaka' }).click()
+    await pickUser(page, 'Yuki Tanaka')
 
     await expect(page.getByRole('heading', { name: 'My events' })).toBeVisible()
     await expect(page.getByRole('link', { name: 'My events' })).toBeVisible()
@@ -28,7 +30,7 @@ test.describe('identity', () => {
     await page.getByRole('button', { name: 'Sign out' }).click()
     await expect(page.getByRole('heading', { name: 'Who are you?' })).toBeVisible()
 
-    await page.getByRole('button', { name: 'Alice Chen (Mox Boarding House)' }).click()
+    await pickUser(page, 'Alice Chen (Mox Boarding House)')
 
     await expect(page.getByRole('link', { name: 'Organizer' })).toBeVisible()
     await expect(page.getByRole('link', { name: 'My events' })).not.toBeVisible()
@@ -42,7 +44,7 @@ test.describe('identity', () => {
     await expect(page.getByText("You're in ✓")).toBeVisible()
 
     await page.getByRole('button', { name: 'Sign out' }).click()
-    await page.getByRole('button', { name: 'Yuki Tanaka' }).click()
+    await pickUser(page, 'Yuki Tanaka')
 
     await expect(page.getByRole('button', { name: 'RSVP' })).toBeVisible()
     await expect(page.getByText("You're in ✓")).not.toBeVisible()

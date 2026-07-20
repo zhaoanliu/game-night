@@ -20,23 +20,30 @@ afterEach(() => {
 })
 
 describe('UserPicker', () => {
-  it('groups users by role', async () => {
+  it('lists players and organizers in one dropdown, grouped', async () => {
     stubFetch().mockResolvedValue(jsonResponse({ users: USERS }))
     render(<UserPicker />)
 
-    expect(await screen.findByRole('button', { name: 'Yuki Tanaka' })).toBeInTheDocument()
-    expect(screen.getByText('Players')).toBeInTheDocument()
-    expect(screen.getByText('Organizers')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Alice Chen' })).toBeInTheDocument()
+    const select = await screen.findByRole('combobox', { name: 'User' })
+    expect(select).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Players' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Organizers' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Yuki Tanaka' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Alice Chen' })).toBeInTheDocument()
   })
 
-  it('posts the session and refreshes on pick', async () => {
+  it('keeps Sign in disabled until a user is chosen, then posts and refreshes', async () => {
     const fetchMock = stubFetch()
     fetchMock.mockResolvedValueOnce(jsonResponse({ users: USERS }))
     fetchMock.mockResolvedValueOnce(jsonResponse({ user: USERS[0] }))
     render(<UserPicker />)
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Yuki Tanaka' }))
+    const button = await screen.findByRole('button', { name: 'Sign in' })
+    expect(button).toBeDisabled()
+
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'User' }), 'p1')
+    expect(button).toBeEnabled()
+    await userEvent.click(button)
 
     await waitFor(() => expect(refresh).toHaveBeenCalledOnce())
     const [path, init] = fetchMock.mock.calls[1]
@@ -54,16 +61,17 @@ describe('UserPicker', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not load users')
 
     await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
-    expect(await screen.findByRole('button', { name: 'Yuki Tanaka' })).toBeInTheDocument()
+    expect(await screen.findByRole('combobox', { name: 'User' })).toBeInTheDocument()
   })
 
-  it('surfaces a failed sign-in without refreshing', async () => {
+  it('surfaces a failed sign-in inline without refreshing', async () => {
     const fetchMock = stubFetch()
     fetchMock.mockResolvedValueOnce(jsonResponse({ users: USERS }))
     fetchMock.mockResolvedValueOnce(errorEnvelope('unknown_user', 'No such user', 404))
     render(<UserPicker />)
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Yuki Tanaka' }))
+    await userEvent.selectOptions(await screen.findByRole('combobox', { name: 'User' }), 'p1')
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('No such user')
     expect(refresh).not.toHaveBeenCalled()

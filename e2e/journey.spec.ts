@@ -1,12 +1,13 @@
 import { expect, test } from '@playwright/test'
+import { pickUser } from './helpers'
 
 test.describe('player journey', () => {
   test('pick identity, search, RSVP, track it, cancel — the full loop [AC-11-10]', async ({
     page,
   }) => {
-    // Arrive anonymous: the picker gates the board.
+    // Arrive anonymous: the login gate comes first.
     await page.goto('/')
-    await page.getByRole('button', { name: 'Yuki Tanaka' }).click()
+    await pickUser(page, 'Yuki Tanaka')
     await expect(page.getByRole('heading', { name: 'Upcoming events' })).toBeVisible()
 
     // Find the event and open it.

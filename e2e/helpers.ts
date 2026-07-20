@@ -30,6 +30,12 @@ export const MIDWEEK_ROSTER = [
   'Marcus Webb',
 ]
 
+// Sign in through the login form, as a person would.
+export async function pickUser(page: Page, name: string): Promise<void> {
+  await page.getByLabel('User').selectOption({ label: name })
+  await page.getByRole('button', { name: 'Sign in' }).click()
+}
+
 // page.request shares the browser context's cookie jar, so the httpOnly
 // session cookie set here is exactly what the page then navigates with.
 export async function signInAs(page: Page, userId: string): Promise<void> {
