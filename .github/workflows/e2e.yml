@@ -1,4 +1,4 @@
-name: Lint
+name: E2E
 
 on:
   pull_request:
@@ -7,7 +7,7 @@ on:
   workflow_call:
 
 concurrency:
-  group: ${{ format('{0}-lint', github.event_name == 'pull_request' && github.ref || github.run_id) }}
+  group: ${{ format('{0}-e2e', github.event_name == 'pull_request' && github.ref || github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -24,10 +24,14 @@ jobs:
       - uses: zhaoanliu/claude-dev-automation/actions/detect-doc-only@v2.0.0
         id: detect
 
-  lint:
+  # The full suite against a production build (playwright.config.local.ts):
+  # dev servers hide SSR/hydration and chunk-isolation bugs. global-setup
+  # resets the database; the webServer config builds and starts the app.
+  e2e:
     needs: detect-changes
     if: needs.detect-changes.outputs.skip != 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -35,13 +39,18 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm run lint
-      - run: npx tsc --noEmit
-      - run: npm run check:routes
-      - name: actionlint
-        uses: docker://rhysd/actionlint:1.7.7
+      - run: npx supabase start
+      - run: node scripts/setup-env.mjs
+      - run: npx playwright install chromium --with-deps
+      - run: npx playwright test -c playwright.config.local.ts
+        env:
+          CI: "true"
+      - uses: actions/upload-artifact@v7
+        if: failure()
         with:
-          args: -color
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
       - name: Dispatch ci-failure for auto-fix
         if: failure()
         uses: zhaoanliu/claude-dev-automation/actions/trigger-ci-failure@v2.0.0

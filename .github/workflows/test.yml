@@ -6,9 +6,32 @@ on:
     branches: [main]
   workflow_call:
 
+concurrency:
+  group: ${{ format('{0}-test', github.event_name == 'pull_request' && github.ref || github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  unit:
+  # Gate job, not paths-ignore: a never-triggered workflow leaves required
+  # checks stuck "pending", while a skipped job satisfies them.
+  detect-changes:
     runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.detect.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: zhaoanliu/claude-dev-automation/actions/detect-doc-only@v2.0.0
+        id: detect
+
+  unit:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    # issues: write — the AC gate ticks satisfied checkboxes on design issues.
+    permissions:
+      contents: read
+      issues: write
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -17,8 +40,23 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:coverage
+      - if: github.event_name == 'pull_request'
+        run: npx vitest run --reporter=json --outputFile=test-results.json
+      - name: Check AC coverage
+        if: github.event_name == 'pull_request'
+        uses: zhaoanliu/claude-dev-automation/actions/check-ac-coverage@v2.0.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          pr-number: ${{ github.event.pull_request.number }}
+      - name: Dispatch ci-failure for auto-fix
+        if: failure()
+        uses: zhaoanliu/claude-dev-automation/actions/trigger-ci-failure@v2.0.0
+        with:
+          gh-pat: ${{ secrets.GH_PAT }}
 
   build:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -29,11 +67,18 @@ jobs:
       - run: npm ci
       - run: node scripts/setup-env.mjs
       - run: npm run build
+      - name: Dispatch ci-failure for auto-fix
+        if: failure()
+        uses: zhaoanliu/claude-dev-automation/actions/trigger-ci-failure@v2.0.0
+        with:
+          gh-pat: ${{ secrets.GH_PAT }}
 
   # Capacity and duplicate-RSVP enforcement (S1/S2) under real concurrency.
   # Runs the real HTTP API against a real Postgres — the guarantee this product
   # depends on is not something a mocked test can check, so it gates every PR.
   integration:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -49,3 +94,8 @@ jobs:
       - run: npm run test:integration
       - if: failure()
         run: npx supabase status || true
+      - name: Dispatch ci-failure for auto-fix
+        if: failure()
+        uses: zhaoanliu/claude-dev-automation/actions/trigger-ci-failure@v2.0.0
+        with:
+          gh-pat: ${{ secrets.GH_PAT }}

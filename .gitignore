@@ -12,6 +12,7 @@ out/
 # tests
 coverage/
 test-results/
+test-results.json
 playwright-report/
 
 # typescript

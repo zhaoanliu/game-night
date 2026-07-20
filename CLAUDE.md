@@ -61,16 +61,31 @@ token. Use `git -C /abs/path` and absolute paths.
 
 Bundle related changes — code and the docs explaining them go in one commit.
 
+## Automation pipeline
+
+CI and bot workflows come from claude-dev-automation, pinned `@v2.0.0` — bump
+pins deliberately, never reference `@main`. Required PR checks: `lint`, `unit`,
+`build`, `integration`, `e2e`. Any CI failure dispatches a `ci-failure` event
+that ci-auto-fix.yml picks up (it mirrors the required checks locally, e2e
+excluded). Label-driven flows: `status: approved` on a feature issue generates
+a design issue; `status: auto-implement` implements the approved design and
+opens a PR (`manual merge required` — bots never merge feature PRs); `bug`
+triggers the bug-fix bot. Bot-facing prompts live in the workflow files — when
+an invariant in this file changes, grep `.github/workflows/` for the old
+wording and update the prompts in the same PR.
+
 ## Testing
 
 - **Run `npm run test:coverage` before committing**, not bare `npm test` —
   thresholds (lines 85 / functions 65 / branches 80 / statements 85) fail CI.
 - **Every user-facing change needs an E2E test in the same PR.**
 - **Run E2E against a production build** (`playwright.config.local.ts`) before
-  merging — dev servers hide SSR/hydration and chunk-isolation bugs.
+  merging — dev servers hide SSR/hydration and chunk-isolation bugs. CI enforces
+  this: the `e2e` required check runs the full suite against a production build.
 - Acceptance criteria are tagged in test descriptions as `[AC-<issue>-<n>]`;
-  `scripts/check-ac-coverage.mjs` gates PRs on one passing tagged test per
-  criterion.
+  the AC-coverage gate (`check-ac-coverage` from claude-dev-automation@v2.0.0,
+  in test.yml's `unit` job) fails PRs unless every criterion on a linked design
+  issue has a passing tagged test (unit or e2e).
 - Integration tests own their fixtures: they create their own users and events
   via the service client and clean up after themselves. Never depend on
   `seed.sql` rows in an integration test — the seed is for humans and for the
