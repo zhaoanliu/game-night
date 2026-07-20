@@ -5,8 +5,11 @@ import { UserPicker } from '@/components/identity/UserPicker'
 import { errorEnvelope, jsonResponse, stubFetch } from '../../helpers/http'
 
 const refresh = vi.fn()
+const push = vi.fn()
+let pathname = '/'
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh }),
+  useRouter: () => ({ push, replace: vi.fn(), refresh }),
+  usePathname: () => pathname,
 }))
 
 const USERS = [
@@ -17,7 +20,14 @@ const USERS = [
 afterEach(() => {
   vi.unstubAllGlobals()
   refresh.mockClear()
+  push.mockClear()
+  pathname = '/'
 })
+
+async function signInVia(userId: string) {
+  await userEvent.selectOptions(await screen.findByRole('combobox', { name: 'User' }), userId)
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+}
 
 describe('UserPicker', () => {
   it('lists players and organizers in one dropdown, grouped', async () => {
@@ -50,6 +60,44 @@ describe('UserPicker', () => {
     expect(path).toBe('/api/session')
     expect((init as RequestInit).method).toBe('POST')
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({ userId: 'p1' })
+  })
+
+  it('lands an organizer on /organizer from generic or player-only paths', async () => {
+    pathname = '/my-events'
+    const fetchMock = stubFetch()
+    fetchMock.mockResolvedValueOnce(jsonResponse({ users: USERS }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ user: USERS[1] }))
+    render(<UserPicker />)
+
+    await signInVia('o1')
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/organizer'))
+    expect(refresh).toHaveBeenCalledOnce()
+  })
+
+  it('lands a player on the board when signing in from the organizer page', async () => {
+    pathname = '/organizer'
+    const fetchMock = stubFetch()
+    fetchMock.mockResolvedValueOnce(jsonResponse({ users: USERS }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ user: USERS[0] }))
+    render(<UserPicker />)
+
+    await signInVia('p1')
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/'))
+  })
+
+  it('preserves a role-appropriate deep link', async () => {
+    pathname = '/events/some-id'
+    const fetchMock = stubFetch()
+    fetchMock.mockResolvedValueOnce(jsonResponse({ users: USERS }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ user: USERS[0] }))
+    render(<UserPicker />)
+
+    await signInVia('p1')
+
+    await waitFor(() => expect(refresh).toHaveBeenCalledOnce())
+    expect(push).not.toHaveBeenCalled()
   })
 
   it('shows an error state with retry when the roster fails to load', async () => {

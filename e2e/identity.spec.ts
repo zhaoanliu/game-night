@@ -32,8 +32,16 @@ test.describe('identity', () => {
 
     await pickUser(page, 'Alice Chen (Mox Boarding House)')
 
-    await expect(page.getByRole('link', { name: 'Organizer' })).toBeVisible()
+    // Organizers land on their own page, not wherever the last user was.
+    await expect(page).toHaveURL('/organizer')
+    await expect(page.getByRole('heading', { name: 'Organizer' })).toBeVisible()
     await expect(page.getByRole('link', { name: 'My events' })).not.toBeVisible()
+
+    // And a player signing in from the organizer page lands on the board.
+    await page.getByRole('button', { name: 'Sign out' }).click()
+    await pickUser(page, 'Yuki Tanaka')
+    await expect(page).toHaveURL('/')
+    await expect(page.getByRole('heading', { name: 'Upcoming events' })).toBeVisible()
   })
 
   test('signing in as someone else re-resolves the open page [AC-11-1]', async ({ page }) => {

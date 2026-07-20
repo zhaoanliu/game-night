@@ -1,17 +1,31 @@
 'use client'
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { apiFetch } from '@/lib/client/api'
-import type { User } from '@/lib/types'
+import type { Role, User } from '@/lib/types'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Spinner } from '@/components/ui/Spinner'
+
+// Where to land after sign-in. A deep link the role can use is preserved
+// (the gate covers every path); a generic entry or a page the role would
+// only 403 on routes to the role's home instead.
+function landingPath(role: Role, currentPath: string): string | null {
+  if (role === 'organizer' && (currentPath === '/' || currentPath.startsWith('/my-events'))) {
+    return '/organizer'
+  }
+  if (role === 'player' && currentPath.startsWith('/organizer')) {
+    return '/'
+  }
+  return null
+}
 
 // The login page, minus the password (none exists — see doc/decisions.md on
 // identity): pick anyone, player or organizer, from one dropdown and sign in.
 export function UserPicker() {
   const router = useRouter()
+  const pathname = usePathname()
   const [users, setUsers] = useState<User[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [signInError, setSignInError] = useState<string | null>(null)
@@ -40,6 +54,8 @@ export function UserPicker() {
       body: JSON.stringify({ userId: selectedId }),
     })
     if (result.ok) {
+      const target = landingPath(result.data.user.role, pathname)
+      if (target) router.push(target)
       router.refresh()
     } else {
       setSignInError(result.message)

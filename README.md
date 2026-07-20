@@ -81,9 +81,12 @@ endpoints — one data path, whether the request comes from the UI or curl:
 | `/organizer` | organizer | create form plus your own not-yet-ended events |
 
 Identity is resolved once, in the root layout: with no session cookie a
-full-screen "Who are you?" picker replaces the app. Identity then sticks until
-you sign out — the header shows who you are, and changing users means signing
-out and picking again. Every fetch surface has loading skeletons,
+full-screen login page (one dropdown, no password) replaces the app. Identity
+then sticks until you sign out — the header shows who you are, and changing
+users means signing out and picking again. Signing in lands you on your role's
+home (players → the board, organizers → their page) unless you deep-linked to
+a page your role can use, which is preserved. Every fetch surface has loading
+skeletons,
 a designed empty state, and an error state with a Retry button; every mutation
 disables its control while pending and settles from the server's response.
 
