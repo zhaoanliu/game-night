@@ -14,6 +14,23 @@ hosted Supabase project, deployed automatically from `main` (see
 [CI and automation](#ci-and-automation)). Same seed data as local: pick a
 seeded user and try to grab the last seat.
 
+To put the live site back into the pristine demo state after playing with it,
+run from the repo root:
+
+```bash
+npx supabase db reset --linked
+```
+
+This drops the hosted database, re-applies the migrations, and re-runs
+`supabase/seed.sql`, restoring every state the
+[demo walkthrough](#demo-walkthrough) relies on — with the relative event times
+re-anchored to now. Merely re-running the seed would not do this: its inserts
+are `on conflict do nothing`, so leftover RSVPs would survive. You need the
+Supabase CLI logged in (`npx supabase login`) and the project linked
+(`npx supabase link --project-ref <ref>`); no redeploy is needed, only the data
+changes. Don't run it while a deploy from `main` is in flight — the CD smoke
+test RSVPs against the seeded events.
+
 > **Status:** in progress. Sections marked _TBD_ are filled in as the phases land.
 
 ## Run it
