@@ -9,6 +9,11 @@ seat at the same instant.
 Built as a take-home project. Next.js (App Router) + TypeScript on the front,
 Next.js route handlers + Postgres (Supabase) on the back.
 
+**Live demo:** https://game-night-livid.vercel.app — hosted on Vercel against a
+hosted Supabase project, deployed automatically from `main` (see
+[CI and automation](#ci-and-automation)). Same seed data as local: pick a
+seeded user and try to grab the last seat.
+
 > **Status:** in progress. Sections marked _TBD_ are filled in as the phases land.
 
 ## Run it
@@ -299,6 +304,16 @@ were generalized behind action inputs, so this repo vendors nothing):
   risk-gated auto-merge (low-risk ≤2-file fixes only).
 - **Rebase bot** — every push to main rebases conflicting PRs, with rule-based
   AI conflict resolution.
+- **CD** — every push to `main` re-runs the full gate set (lint, test,
+  integration, e2e), applies migrations to the hosted Supabase project
+  (**before** the deploy — a failing migration blocks the release), deploys to
+  Vercel, then runs a hosted smoke test: the RSVP round-trip against the live
+  seeded events (`201 confirmed` on the last seat → `200 already_rsvpd` →
+  `409 event_full` on the full event → `200 cancelled`, seed restored). A
+  migration failure dispatches `db-fix` (constrained fix PR, never
+  auto-merged); any other deploy failure dispatches `cd-auto-fix`
+  (reproduce-locally → classify infra vs code → fix or file an issue); a
+  monitor workflow catches CD runs that die before they can dispatch.
 
 Bot runs use the library-default model (claude-sonnet-5 at v2.0.0). The bots'
 prompts encode this repo's invariants — most importantly that nothing writes

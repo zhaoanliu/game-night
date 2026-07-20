@@ -74,6 +74,16 @@ triggers the bug-fix bot. Bot-facing prompts live in the workflow files — when
 an invariant in this file changes, grep `.github/workflows/` for the old
 wording and update the prompts in the same PR.
 
+**Hosting/CD:** merging to `main` runs cd.yml — the full gate set as reusable
+workflows, then migrations against the hosted Supabase project
+(`sklnkdgjawuromzsxuok`, us-west-1), then `npx vercel deploy --prod`
+(https://game-night-livid.vercel.app), then a hosted RSVP-round-trip smoke.
+lint/test/e2e no longer trigger on `push: main` — CD invokes them there.
+Migration failures dispatch `db-failure` → db-fix.yml (fix PRs scoped to
+`supabase/migrations/`, never auto-merged); other deploy failures dispatch
+`cd-failure` → cd-auto-fix.yml. Secrets: VERCEL_TOKEN, SUPABASE_ACCESS_TOKEN;
+repo vars: VERCEL_ORG_ID, VERCEL_PROJECT_ID.
+
 ## Testing
 
 - **Run `npm run test:coverage` before committing**, not bare `npm test` —
