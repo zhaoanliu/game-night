@@ -40,3 +40,5 @@ export function seatsLabel(seatsLeft: number): string {
 export function isInProgress(startsAt: string, endsAt: string, now: number = Date.now()): boolean {
   return Date.parse(startsAt) <= now && Date.parse(endsAt) > now
 }
+
+const selfHealCanaryUnused = "deliberate lint error for the Phase D self-heal canary"
