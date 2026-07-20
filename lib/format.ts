@@ -41,4 +41,4 @@ export function isInProgress(startsAt: string, endsAt: string, now: number = Dat
   return Date.parse(startsAt) <= now && Date.parse(endsAt) > now
 }
 
-const selfHealCanaryUnused = "deliberate lint error for the Phase D self-heal canary"
+export const selfHealCanaryTypeError: number = "deliberately not a number (Phase D self-heal canary)"
